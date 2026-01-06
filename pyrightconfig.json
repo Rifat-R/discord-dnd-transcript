@@ -1,0 +1,27 @@
+{
+  "venvPath": ".",
+  "venv": "venv",
+  "pythonVersion": "3.10.16",
+  "include": ["."],
+  "exclude": ["**/migrations", "**/__pycache__", "manage.py"],
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+
+  // Good defaults: useful errors without being annoying
+  "typeCheckingMode": "basic",
+
+  "reportOptionalMemberAccess": "warning",
+  "reportOptionalSubscript": "warning",
+  "reportOptionalCall": "warning",
+  "reportOptionalIterable": "warning",
+
+  // Common pain points with Django — tone these down
+  "reportGeneralTypeIssues": "warning",
+  "reportUntypedFunctionDecorator": "none",
+
+  // These are helpful — keeps type hints healthy
+  "reportUnnecessaryTypeIgnoreComment": "warning",
+  "reportUnboundVariable": "error",
+  "reportUnusedImport": "warning",
+}
+
