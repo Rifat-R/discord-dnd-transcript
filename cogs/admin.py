@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-import asyncio
 
 
 class Admin(commands.Cog):
@@ -10,7 +9,7 @@ class Admin(commands.Cog):
     def _is_admin(self, ctx: discord.ApplicationContext) -> bool:
         """Check if user has admin permissions (server admin or bot owner)"""
         return (
-            ctx.author.guild_permissions.administrator
+            ctx.author.guild_permissions.administrator  # type: ignore
             or ctx.author.id == self.bot.owner_id
         )
 
@@ -113,46 +112,9 @@ class Admin(commands.Cog):
             await ctx.respond(f"❌ Failed to list commands: {str(e)}", ephemeral=True)
 
     @discord.slash_command(
-        name="clear_commands",
-        description="Clear all commands (admin only - use with caution!)",
-    )
-    async def clear_commands(
-        self,
-        ctx: discord.ApplicationContext,
-        scope: str = discord.Option(
-            str, "Choose scope to clear", choices=["global", "guild"], default="guild"
-        ),
-    ):
-        """Clear all commands - use with caution!"""
-        if not self._is_admin(ctx):
-            await ctx.respond(
-                "❌ You need admin permissions to use this command.", ephemeral=True
-            )
-            return
-
-        await ctx.defer(ephemeral=True)
-
-        try:
-            if scope == "global":
-                await self.bot.clear_application_commands()
-                await ctx.respond(
-                    "⚠️ Cleared all global commands. You'll need to restart the bot or run sync_commands to restore them.",
-                    ephemeral=True,
-                )
-            else:
-                await self.bot.clear_application_commands(guild=ctx.guild)
-                await ctx.respond(
-                    "⚠️ Cleared all server commands. Run sync_guild to restore them.",
-                    ephemeral=True,
-                )
-
-        except Exception as e:
-            await ctx.respond(f"❌ Failed to clear commands: {str(e)}", ephemeral=True)
-
-    @discord.slash_command(
         name="bot_info", description="Show bot information and status"
     )
-    async def bot_info(self, ctx: discord.ApplicationContext):
+    async def info(self, ctx: discord.ApplicationContext):
         """Show bot information"""
         embed = discord.Embed(title="🤖 Bot Information", color=discord.Color.green())
 
