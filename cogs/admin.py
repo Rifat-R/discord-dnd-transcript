@@ -8,10 +8,13 @@ class Admin(commands.Cog):
 
     def _is_admin(self, ctx: discord.ApplicationContext) -> bool:
         """Check if user has admin permissions (server admin or bot owner)"""
-        return (
-            ctx.author.guild_permissions.administrator  # type: ignore
-            or ctx.author.id == self.bot.owner_id
-        )
+        if isinstance(ctx.author, discord.Member):
+            return (
+                ctx.author.guild_permissions.administrator
+                or ctx.author.id == self.bot.owner_id
+            )
+        else:
+            return ctx.author.id == self.bot.owner_id
 
     @discord.slash_command(
         name="sync_commands",
@@ -74,37 +77,32 @@ class Admin(commands.Cog):
         await ctx.defer(ephemeral=True)
 
         try:
-            # Get global commands
-            global_commands = await self.bot.get_application_commands()
-
-            # Get guild commands
-            guild_commands = await self.bot.get_application_commands(guild=ctx.guild)
+            # Get all commands from bot
+            all_commands = self.bot.application_commands
 
             embed = discord.Embed(
                 title="📋 Registered Commands", color=discord.Color.blue()
             )
 
-            if global_commands:
-                global_cmd_list = "\n".join(
-                    f"• `/{cmd.name}` - {cmd.description}" for cmd in global_commands
-                )
-                embed.add_field(
-                    name="🌍 Global Commands", value=global_cmd_list, inline=False
-                )
+            if all_commands:
+                cmd_list = []
+                for cmd in all_commands:
+                    if hasattr(cmd, "name") and hasattr(cmd, "description"):
+                        cmd_list.append(f"• `/{cmd.name}` - {cmd.description}")
 
-            if guild_commands:
-                guild_cmd_list = "\n".join(
-                    f"• `/{cmd.name}` - {cmd.description}" for cmd in guild_commands
-                )
-                embed.add_field(
-                    name="🏠 Server Commands", value=guild_cmd_list, inline=False
-                )
-
-            if not global_commands and not guild_commands:
+                if cmd_list:
+                    embed.description = "\n".join(cmd_list[:20])  # Limit to 20 commands
+                    if len(cmd_list) > 20:
+                        embed.set_footer(
+                            text=f"...and {len(cmd_list) - 20} more commands"
+                        )
+                else:
+                    embed.description = "No valid commands found."
+            else:
                 embed.description = "No commands found."
 
             embed.set_footer(
-                text=f"Total: {len(global_commands or []) + len(guild_commands or [])} commands"
+                text=f"Total: {len(all_commands) if all_commands else 0} commands"
             )
             await ctx.respond(embed=embed, ephemeral=True)
 
