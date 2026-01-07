@@ -1,7 +1,7 @@
 {
   "venvPath": ".",
   "venv": "venv",
-  "pythonVersion": "3.10.16",
+  "pythonVersion": "3.12",
   "include": ["."],
   "exclude": ["**/migrations", "**/__pycache__", "manage.py"],
   "reportMissingImports": true,

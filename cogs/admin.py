@@ -28,9 +28,9 @@ class Admin(commands.Cog):
         await ctx.defer(ephemeral=True)
 
         try:
-            synced = await self.bot.sync_commands()
+            await self.bot.sync_commands()
             await ctx.respond(
-                f"✅ Successfully synced {len(synced)} commands globally!",
+                f"✅ Successfully synced commands globally!",
                 ephemeral=True,
             )
         except Exception as e:
