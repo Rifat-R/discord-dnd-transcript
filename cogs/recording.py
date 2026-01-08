@@ -17,7 +17,7 @@ class Recording(commands.Cog):
         os.makedirs(self.recordings_dir, exist_ok=True)
 
     @discord.slash_command()
-    async def start_record(self, ctx: discord.ApplicationContext):
+    async def start_recording(self, ctx: discord.ApplicationContext):
         """Start recording audio in your current voice channel"""
         if not isinstance(ctx.author, discord.Member):
             await ctx.respond("This command can only be used in a server.")
