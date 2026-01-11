@@ -1,4 +1,9 @@
+import collections
 import os
+import wave
+
+import numpy as np
+import webrtcvad
 import whisper
 from services import GameService, SessionData
 
@@ -23,6 +28,98 @@ def _format_timestamp(seconds: float) -> str:
     if hours:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
+
+
+def _to_mono_16bit(pcm_data: bytes, channels: int, sample_width: int) -> bytes:
+    if sample_width == 1:
+        audio = np.frombuffer(pcm_data, dtype=np.uint8).astype(np.int16)
+        audio = (audio - 128) << 8
+    elif sample_width == 2:
+        audio = np.frombuffer(pcm_data, dtype=np.int16)
+    elif sample_width == 4:
+        audio = np.frombuffer(pcm_data, dtype=np.int32)
+        audio = (audio / 65536).astype(np.int16)
+    else:
+        raise ValueError("Unsupported sample width")
+
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1).astype(np.int16)
+
+    return audio.tobytes()
+
+
+def _trim_audio_with_vad(wav_path: str, output_path: str) -> str:
+    with wave.open(wav_path, "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        pcm_data = wav_file.readframes(wav_file.getnframes())
+
+    mono_pcm = _to_mono_16bit(pcm_data, channels, sample_width)
+
+    vad = webrtcvad.Vad(2)
+    frame_duration_ms = 30
+    frame_size = int(sample_rate * frame_duration_ms / 1000)
+    frame_bytes = frame_size * 2
+    if frame_size == 0:
+        return wav_path
+
+    frames = [
+        mono_pcm[i : i + frame_bytes]
+        for i in range(0, len(mono_pcm) - frame_bytes + 1, frame_bytes)
+    ]
+
+    padding_ms = 300
+    num_padding_frames = max(int(padding_ms / frame_duration_ms), 1)
+    ring_buffer = collections.deque(maxlen=num_padding_frames)
+    voiced_frames: list[bytes] = []
+    triggered = False
+
+    for frame in frames:
+        is_speech = vad.is_speech(frame, sample_rate)
+        if not triggered:
+            ring_buffer.append((frame, is_speech))
+            num_voiced = sum(1 for _, speech in ring_buffer if speech)
+            if num_voiced > 0.9 * num_padding_frames:
+                triggered = True
+                voiced_frames.extend(f for f, _ in ring_buffer)
+                ring_buffer.clear()
+        else:
+            voiced_frames.append(frame)
+            ring_buffer.append((frame, is_speech))
+            num_unvoiced = sum(1 for _, speech in ring_buffer if not speech)
+            if num_unvoiced > 0.9 * num_padding_frames:
+                triggered = False
+                voiced_frames.extend(f for f, _ in ring_buffer)
+                ring_buffer.clear()
+
+    if not voiced_frames:
+        return wav_path
+
+    trimmed_pcm = b"".join(voiced_frames)
+    with wave.open(output_path, "wb") as trimmed_file:
+        trimmed_file.setnchannels(1)
+        trimmed_file.setsampwidth(2)
+        trimmed_file.setframerate(sample_rate)
+        trimmed_file.writeframes(trimmed_pcm)
+
+    return output_path
+
+
+def _dedupe_segments(
+    segments: list[tuple[float, str, str]], window_seconds: float = 2.0
+) -> list[tuple[float, str, str]]:
+    last_seen: dict[str, tuple[str, float]] = {}
+    deduped: list[tuple[float, str, str]] = []
+
+    for start, user_id, text in sorted(segments, key=lambda item: item[0]):
+        last_text, last_time = last_seen.get(user_id, ("", -1.0))
+        if text == last_text and start - last_time <= window_seconds:
+            continue
+        deduped.append((start, user_id, text))
+        last_seen[user_id] = (text, start)
+
+    return deduped
 
 
 async def transcribe_session(
@@ -64,17 +161,28 @@ async def transcribe_session(
 
         # --- Transcribe ---
         try:
+            trimmed_path = wav_path
+            try:
+                trimmed_path = _trim_audio_with_vad(
+                    wav_path, os.path.join(session_folder, f"{base}_trimmed.wav")
+                )
+            except Exception:
+                trimmed_path = wav_path
+
             result = whisper_model.transcribe(
-                wav_path,
+                trimmed_path,
                 language="en",
                 task="transcribe",
                 temperature=0.0,
                 condition_on_previous_text=False,
             )
-            transcription_text = str(result.get("text", ""))
+            result_dict = result if isinstance(result, dict) else {}
+            transcription_text = str(result_dict.get("text", ""))
             transcriptions[user_id] = transcription_text
 
-            for segment in result.get("segments", []) or []:
+            for segment in result_dict.get("segments", []) or []:
+                if not isinstance(segment, dict):
+                    continue
                 start = float(segment.get("start", 0.0))
                 text = str(segment.get("text", "")).strip()
                 if text:
@@ -116,9 +224,7 @@ async def transcribe_session(
         f.write("=" * 50 + "\n\n")
 
         if combined_segments:
-            for start, user_id, text in sorted(
-                combined_segments, key=lambda item: item[0]
-            ):
+            for start, user_id, text in _dedupe_segments(combined_segments):
                 name = participant_names.get(user_id, f"User {user_id}")
                 timestamp = _format_timestamp(start)
                 f.write(f"[{timestamp}] {name}: {text}\n")
