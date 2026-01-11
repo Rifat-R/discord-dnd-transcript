@@ -38,10 +38,15 @@ class GameService:
         cfg = self._load(guild_id, channel_id)
         return cfg["characters"].get(str(user_id))
 
-    def get_mapping(self, guild_id: int, channel_id: int) -> dict:
+    def get_mapping(self, guild_id: int, channel_id: int | None) -> dict:
         cfg = self._load(guild_id, channel_id)
 
         game_name = cfg["game_name"]
         characters = cfg["characters"].copy()
 
         return {"game_name": game_name, "characters": characters}
+
+    def clear_mapping(self, guild_id: int, channel_id: int | None) -> None:
+        key = self._key(guild_id, channel_id)
+        if key in self.db:
+            del self.db[key]
