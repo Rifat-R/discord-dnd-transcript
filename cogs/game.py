@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from services.game_service import GameService
+from services import GameService
 
 
 class Game(commands.Cog):

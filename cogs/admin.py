@@ -40,30 +40,6 @@ class Admin(commands.Cog):
             await ctx.respond(f"❌ Failed to sync commands: {str(e)}", ephemeral=True)
 
     @discord.slash_command(
-        name="sync_guild", description="Sync commands for this server only (admin only)"
-    )
-    async def sync_guild(self, ctx: discord.ApplicationContext):
-        """Sync commands for the current guild only"""
-        if not self._is_admin(ctx):
-            await ctx.respond(
-                "❌ You need admin permissions to use this command.", ephemeral=True
-            )
-            return
-
-        await ctx.defer(ephemeral=True)
-
-        try:
-            synced = await self.bot.sync_commands(guild=ctx.guild)
-            await ctx.respond(
-                f"✅ Successfully synced {len(synced)} commands for this server!",
-                ephemeral=True,
-            )
-        except Exception as e:
-            await ctx.respond(
-                f"❌ Failed to sync guild commands: {str(e)}", ephemeral=True
-            )
-
-    @discord.slash_command(
         name="list_commands", description="List all registered commands (admin only)"
     )
     async def list_commands(self, ctx: discord.ApplicationContext):

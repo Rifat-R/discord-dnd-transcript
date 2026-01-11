@@ -1,13 +1,14 @@
-from discord.ext import commands
+import discord
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
-bot = commands.Bot()
+bot = discord.Bot(debug_guilds=[1009227682124406824])
 
-cogs_list = ["recording", "admin"]
+cogs_list = ["recording", "admin", "game"]
 
 for cog in cogs_list:
+    print(f"Loading cog: {cog}")
     bot.load_extension(f"cogs.{cog}")
 
 
