@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-bot = discord.Bot(debug_guilds=[1009227682124406824])
+bot = discord.Bot(debug_guilds=[1012160557706661898])
 
 cogs_list = ["recording", "admin", "game"]
 

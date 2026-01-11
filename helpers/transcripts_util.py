@@ -15,6 +15,16 @@ def _safe_name(name: str) -> str:
     )
 
 
+def _format_timestamp(seconds: float) -> str:
+    total_seconds = max(int(seconds), 0)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
 async def transcribe_session(
     bot,
     session_key: str,
@@ -25,6 +35,7 @@ async def transcribe_session(
 
     transcriptions: dict[str, str] = {}
     session_data: SessionData = {}
+    combined_segments: list[tuple[float, str, str]] = []
 
     # If you want the combined transcript to show names too:
     participant_names: dict[str, str] = {}
@@ -63,6 +74,12 @@ async def transcribe_session(
             transcription_text = str(result.get("text", ""))
             transcriptions[user_id] = transcription_text
 
+            for segment in result.get("segments", []) or []:
+                start = float(segment.get("start", 0.0))
+                text = str(segment.get("text", "")).strip()
+                if text:
+                    combined_segments.append((start, user_id, text))
+
             # Overwrite transcript for this user every time
             transcription_path = os.path.join(
                 session_folder, f"{base}_transcription.txt"
@@ -98,9 +115,17 @@ async def transcribe_session(
         f.write(f"Participants: {', '.join(recorded_users)}\n")
         f.write("=" * 50 + "\n\n")
 
-        for user_id, text in transcriptions.items():
-            name = participant_names.get(user_id, f"User {user_id}")
-            f.write(f"{name}:\n{text}\n\n")
+        if combined_segments:
+            for start, user_id, text in sorted(
+                combined_segments, key=lambda item: item[0]
+            ):
+                name = participant_names.get(user_id, f"User {user_id}")
+                timestamp = _format_timestamp(start)
+                f.write(f"[{timestamp}] {name}: {text}\n")
+        else:
+            for user_id, text in transcriptions.items():
+                name = participant_names.get(user_id, f"User {user_id}")
+                f.write(f"{name}: {text}\n")
 
     service = GameService()
     service.set_session_data(session_key, session_data)
