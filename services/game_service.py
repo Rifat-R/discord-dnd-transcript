@@ -1,5 +1,7 @@
 from sqlitedict import SqliteDict
 
+SessionData = dict[str, str]
+
 
 class GameService:
     def __init__(self, db_path="game_database.sqlite"):
@@ -50,3 +52,13 @@ class GameService:
         key = self._key(guild_id, channel_id)
         if key in self.db:
             del self.db[key]
+
+    def set_session_data(
+        self,
+        session_folder_key: str,
+        session_data: SessionData,
+    ) -> None:
+        self.db[f"session:{session_folder_key}"] = session_data
+
+    def get_session_data(self, session_folder_key: str) -> SessionData | None:
+        return self.db.get(f"session:{session_folder_key}")

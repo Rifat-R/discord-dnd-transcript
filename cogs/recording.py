@@ -4,6 +4,9 @@ from discord.ext import commands
 import os
 from datetime import datetime
 import whisper
+from services import GameService
+from helpers import transcribe_session
+
 
 # Load a faster model for real-time transcription
 whisper_model = whisper.load_model("base")
@@ -38,121 +41,43 @@ class Recording(commands.Cog):
         )
         await ctx.respond("Started recording!")
 
-    async def once_done(self, sink: Sink, channel: discord.TextChannel, *args):
-        recorded_users = [f"<@{user_id}>" for user_id in sink.audio_data.keys()]
-        await sink.vc.disconnect()
-
-        # Create timestamp for folder name
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_folder = os.path.join(self.recordings_dir, f"session_{timestamp}")
+    def _save_wavs_from_sink(self, session_folder: str, sink) -> dict[str, str]:
         os.makedirs(session_folder, exist_ok=True)
 
-        saved_files = []
-        discord_files = []
-        transcriptions = {}
-
-        await channel.send("🔄 Processing recordings and transcribing audio...")
+        paths: dict[str, str] = {}
 
         for user_id, audio in sink.audio_data.items():
-            # Get user info for filename
-            try:
-                user = await self.bot.fetch_user(user_id)
-                username = user.name.replace(" ", "_").replace("/", "_")
-            except:
-                username = f"user_{user_id}"
-
-            # Save original WAV file locally
-            wav_filename = f"{username}_{user_id}.wav"
+            # audio.file is file-like (BytesIO/SpooledTemporaryFile)
+            wav_filename = f"{user_id}.wav"
             wav_path = os.path.join(session_folder, wav_filename)
 
-            # Reset file pointer and save locally
             audio.file.seek(0)
             with open(wav_path, "wb") as f:
                 f.write(audio.file.read())
 
-            saved_files.append(wav_path)
+            paths[str(user_id)] = wav_path
 
-            discord_files.append(discord.File(wav_path, wav_filename))
+        return paths
 
-            # Transcribe audio using Whisper
-            transcription_text = ""
-            try:
-                await channel.send(f"🎯 Transcribing {username}'s audio...")
-                result = whisper_model.transcribe(wav_path)
-                transcription_text = result["text"]
-                transcriptions[user_id] = transcription_text
+    async def once_done(self, sink: Sink, channel: discord.TextChannel, *args):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_key = f"session_{timestamp}"
+        session_folder = os.path.join(self.recordings_dir, session_key)
 
-                # Save transcription to file
-                transcription_filename = f"{username}_{user_id}_transcription.txt"
-                transcription_path = os.path.join(
-                    session_folder, transcription_filename
-                )
+        await channel.send("🔄 Processing recordings and transcribing audio...")
 
-                with open(transcription_path, "w", encoding="utf-8") as f:
-                    f.write(f"Transcription for {username} (ID: {user_id})\n")
-                    f.write(f"Session: {timestamp}\n")
-                    f.write("=" * 50 + "\n\n")
-                    f.write(transcription_text)  # type: ignore
+        audio_paths = self._save_wavs_from_sink(session_folder, sink)
+        await transcribe_session(self.bot, session_key, audio_paths)
 
-                saved_files.append(transcription_path)
+        await sink.vc.disconnect()
 
-            except Exception as e:
-                print(f"Error transcribing {wav_filename}: {e}")
-                transcriptions[user_id] = f"Transcription failed: {str(e)}"
-
-        # Create combined transcript file
-        combined_transcript_path = os.path.join(
-            session_folder, "combined_transcript.txt"
+        embed = discord.Embed(
+            title="✅ Recording and Transcription Complete",
+            description=f"Session ID: `{session_key}`\n"
+            f"Use `/get_transcript session:{session_key}` to retrieve transcripts.",
+            color=discord.Color.green(),
         )
-        with open(combined_transcript_path, "w", encoding="utf-8") as f:
-            f.write(f"Combined Session Transcript\n")
-            f.write(f"Session: {timestamp}\n")
-            f.write(f"Participants: {', '.join(recorded_users)}\n")
-            f.write("=" * 50 + "\n\n")
-
-            for user_id, transcription in transcriptions.items():
-                try:
-                    user = await self.bot.fetch_user(user_id)
-                    username = user.name
-                except:
-                    username = f"User {user_id}"
-
-                f.write(f"**{username}**:\n")
-                f.write(f"{transcription}\n\n")
-
-        saved_files.append(combined_transcript_path)
-
-        # Prepare transcription summary for Discord
-        transcript_summary = []
-        for user_id, text in transcriptions.items():
-            try:
-                user = await self.bot.fetch_user(user_id)
-                username = user.name
-            except:
-                username = f"User {user_id}"
-
-            # Truncate long transcriptions for Discord display
-            display_text = text[:200] + "..." if len(text) > 200 else text
-            transcript_summary.append(f"**{username}**: {display_text}")
-
-        # Send message with files and transcriptions
-        await channel.send(
-            f"🎙️ Recording completed! Saved locally for: {', '.join(recorded_users)}\n"
-            f"📁 Session folder: `{session_folder}`\n"
-            f"📊 Files saved: {len(saved_files)}\n"
-            f"📝 Transcriptions: {len([t for t in transcriptions.values() if not t.startswith('Transcription')])}/{len(transcriptions)}\n\n"
-            f"**Transcript Preview:**\n" + "\n".join(transcript_summary[:3]),
-            files=discord_files[:10],  # Limit to 10 files for Discord
-        )
-
-        # Send the combined transcript as a separate file if it exists
-        if os.path.exists(combined_transcript_path):
-            await channel.send(
-                f"📄 **Full combined transcript** for session {timestamp}:",
-                file=discord.File(
-                    combined_transcript_path, f"session_{timestamp}_transcript.txt"
-                ),
-            )
+        await channel.send(embed=embed)
 
     @discord.slash_command()
     async def stop_recording(self, ctx):
@@ -271,6 +196,32 @@ class Recording(commands.Cog):
                     text=f"...and {len(transcripts) - 10} more transcript sessions"
                 )
             await ctx.respond(embed=embed, ephemeral=True)
+
+    @discord.slash_command(description="Re-transcribe audio for a specific session")
+    async def re_transcribe(self, ctx: discord.ApplicationContext, session_id: str):
+        service = GameService()
+        data = service.get_session_data(session_id)  # user_id -> wav_filename
+
+        if not data:
+            await ctx.respond(
+                f"No session data found for '{session_id}'.", ephemeral=True
+            )
+            return
+
+        session_folder = os.path.join(self.recordings_dir, session_id)
+
+        audio_paths = {
+            user_id: os.path.join(session_folder, wav_filename)
+            for user_id, wav_filename in data.items()
+        }
+
+        await ctx.respond(
+            f"🔄 Re-transcribing audio for session '{session_id}'...", ephemeral=True
+        )
+        await transcribe_session(self.bot, session_id, audio_paths)
+        await ctx.respond(
+            f"✅ Re-transcription complete for session '{session_id}'.", ephemeral=True
+        )
 
     @discord.slash_command()
     async def get_transcript(self, ctx: discord.ApplicationContext, session: str):
