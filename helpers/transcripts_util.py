@@ -5,6 +5,7 @@ import wave
 import numpy as np
 import webrtcvad
 import whisper
+from openai import OpenAI
 from services import GameService, SessionData
 
 whisper_model = whisper.load_model("base")
@@ -122,6 +123,83 @@ def _dedupe_segments(
     return deduped
 
 
+def _build_summary_template() -> str:
+    return """Game/date
+Names
+Party: - (player) -
+-NPCs/Groups: -
+-
+Places
+-
+Key Points
+-
+Action
+Cause Of Combat
+-
+Combat
+- 
+Events In Combat
+-
+Extracted Information
+-
+Combined Key Facts
+-
+What’s Known vs. Unknown
+-
+Plans
+-
+Risks & Mitigations
+-
+Decision Points Ahead
+-Why it matters
+-
+Loot
+Supplies:
+Potions:
+Valuables:
+Weapons (Magic):
+Weapons/armor (non‑magical):
+Magic item pending ID:
+The Situation (one-page read)
+This Season Recap for next game
+What this covers (full‑season recap
+"""
+
+
+def _summarize_transcript(session_key: str, combined_text: str) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+
+    client = OpenAI(api_key=api_key)
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    template = _build_summary_template()
+
+    system_prompt = (
+        "You summarize tabletop RPG session transcripts into a structured notes template. "
+        "Keep output concise and preserve the template headings and line breaks."
+    )
+    user_prompt = (
+        f"Session key: {session_key}\n\n"
+        "Transcript:\n"
+        f"{combined_text}\n\n"
+        "Fill in the template below. If something is unknown, leave the hyphen line blank. "
+        "Do not add extra sections or commentary.\n\n"
+        f"Template:\n{template}"
+    )
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.2,
+    )
+
+    return response.choices[0].message.content.strip()
+
+
 async def transcribe_session(
     bot,
     session_key: str,
@@ -217,21 +295,33 @@ async def transcribe_session(
     ]
     combined_path = os.path.join(session_folder, "combined_transcript.txt")
 
+    combined_lines: list[str] = []
+    if combined_segments:
+        for start, user_id, text in _dedupe_segments(combined_segments):
+            name = participant_names.get(user_id, f"User {user_id}")
+            timestamp = _format_timestamp(start)
+            combined_lines.append(f"[{timestamp}] {name}: {text}")
+    else:
+        for user_id, text in transcriptions.items():
+            name = participant_names.get(user_id, f"User {user_id}")
+            combined_lines.append(f"{name}: {text}")
+
     with open(combined_path, "w", encoding="utf-8") as f:
         f.write("Combined Session Transcript\n")
         f.write(f"{session_key}\n")
         f.write(f"Participants: {', '.join(recorded_users)}\n")
         f.write("=" * 50 + "\n\n")
+        for line in combined_lines:
+            f.write(f"{line}\n")
 
-        if combined_segments:
-            for start, user_id, text in _dedupe_segments(combined_segments):
-                name = participant_names.get(user_id, f"User {user_id}")
-                timestamp = _format_timestamp(start)
-                f.write(f"[{timestamp}] {name}: {text}\n")
-        else:
-            for user_id, text in transcriptions.items():
-                name = participant_names.get(user_id, f"User {user_id}")
-                f.write(f"{name}: {text}\n")
+    summary_path = os.path.join(session_folder, "session_summary.txt")
+    try:
+        summary_text = _summarize_transcript(session_key, "\n".join(combined_lines))
+    except Exception as e:
+        summary_text = f"Summary generation failed: {e}"
+
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write(summary_text)
 
     service = GameService()
     service.set_session_data(session_key, session_data)
