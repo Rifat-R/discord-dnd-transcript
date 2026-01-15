@@ -6,9 +6,9 @@ import wave
 from datetime import datetime
 
 import numpy as np
-import requests
 import webrtcvad
 import whisper
+from openai import OpenAI
 from services import GameService, SessionData
 
 whisper_model = whisper.load_model("base")
@@ -17,8 +17,7 @@ whisper_model = whisper.load_model("base")
 RECORDINGS_DIR = "recordings"
 SUMMARY_FILE_NAME = "combined_summary.md"
 METADATA_FILE_NAME = "session_metadata.json"
-OPENAI_MODEL = "gpt-4o-mini"
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_MODEL = "gpt-4.1-mini"
 
 
 def _safe_name(name: str) -> str:
@@ -102,24 +101,18 @@ def _call_openai(messages: list[dict[str, str]], max_tokens: int = 900) -> str:
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set")
 
-    response = requests.post(
-        OPENAI_API_URL,
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "model": OPENAI_MODEL,
-            "messages": messages,
-            "temperature": 0.2,
-            "max_tokens": max_tokens,
-        },
-        timeout=120,
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=messages,
+        temperature=0.2,
+        max_tokens=max_tokens,
     )
-    response.raise_for_status()
-    data = response.json()
-    choices = data.get("choices", [])
+
+    choices = response.choices or []
     if not choices:
         raise RuntimeError("OpenAI response missing choices")
-    message = choices[0].get("message", {})
-    content = message.get("content")
+    content = choices[0].message.content
     if not content:
         raise RuntimeError("OpenAI response missing content")
     return str(content).strip()
