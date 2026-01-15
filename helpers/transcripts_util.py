@@ -381,16 +381,8 @@ async def transcribe_session(
 
         # --- Transcribe ---
         try:
-            trimmed_path = wav_path
-            try:
-                trimmed_path = _trim_audio_with_vad(
-                    wav_path, os.path.join(session_folder, f"{base}_trimmed.wav")
-                )
-            except Exception:
-                trimmed_path = wav_path
-
             result = whisper_model.transcribe(
-                trimmed_path,
+                wav_path,
                 language="en",
                 task="transcribe",
                 temperature=0.0,
