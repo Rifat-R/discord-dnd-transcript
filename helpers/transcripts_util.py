@@ -1,8 +1,12 @@
+import asyncio
 import collections
+import json
 import os
 import wave
+from datetime import datetime
 
 import numpy as np
+import requests
 import webrtcvad
 import whisper
 from services import GameService, SessionData
@@ -11,6 +15,10 @@ whisper_model = whisper.load_model("base")
 
 
 RECORDINGS_DIR = "recordings"
+SUMMARY_FILE_NAME = "combined_summary.md"
+METADATA_FILE_NAME = "session_metadata.json"
+OPENAI_MODEL = "gpt-4o-mini"
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 
 def _safe_name(name: str) -> str:
@@ -28,6 +36,222 @@ def _format_timestamp(seconds: float) -> str:
     if hours:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
+
+
+def _parse_session_datetime(session_key: str) -> datetime | None:
+    if not session_key.startswith("session_"):
+        return None
+    timestamp = session_key.replace("session_", "", 1)
+    try:
+        return datetime.strptime(timestamp, "%Y%m%d_%H%M%S")
+    except ValueError:
+        return None
+
+
+def _format_session_date(session_key: str, fallback: str = "Unknown date") -> str:
+    parsed = _parse_session_datetime(session_key)
+    if not parsed:
+        return fallback
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _load_session_metadata(session_folder: str) -> dict:
+    metadata_path = os.path.join(session_folder, METADATA_FILE_NAME)
+    if not os.path.exists(metadata_path):
+        return {}
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return {}
+    return {}
+
+
+def _write_session_metadata(session_folder: str, metadata: dict) -> None:
+    metadata_path = os.path.join(session_folder, METADATA_FILE_NAME)
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+
+def _chunk_text(text: str, max_chars: int = 12000) -> list[str]:
+    lines = text.splitlines()
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for line in lines:
+        line_len = len(line) + 1
+        if current and current_len + line_len > max_chars:
+            chunks.append("\n".join(current))
+            current = [line]
+            current_len = line_len
+        else:
+            current.append(line)
+            current_len += line_len
+
+    if current:
+        chunks.append("\n".join(current))
+
+    return chunks
+
+
+def _call_openai(messages: list[dict[str, str]], max_tokens: int = 900) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    response = requests.post(
+        OPENAI_API_URL,
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "model": OPENAI_MODEL,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    data = response.json()
+    choices = data.get("choices", [])
+    if not choices:
+        raise RuntimeError("OpenAI response missing choices")
+    message = choices[0].get("message", {})
+    content = message.get("content")
+    if not content:
+        raise RuntimeError("OpenAI response missing content")
+    return str(content).strip()
+
+
+def _summary_template() -> str:
+    return (
+        "# Session Summary\n\n"
+        "**Game/Date:** <fill>\n"
+        "**Names:** <fill>\n"
+        "**Party:**\n"
+        "- <fill>\n"
+        "**NPCs/Groups:**\n"
+        "- <fill>\n\n"
+        "## Places\n"
+        "- <fill>\n\n"
+        "## Key Points\n"
+        "- <fill>\n\n"
+        "## Action\n"
+        "**Cause Of Combat**\n"
+        "- <fill>\n"
+        "**Combat**\n"
+        "- <fill>\n"
+        "**Events In Combat**\n"
+        "- <fill>\n\n"
+        "## Extracted Information\n"
+        "**Combined Key Facts**\n"
+        "- <fill>\n"
+        "**What’s Known vs. Unknown**\n"
+        "- <fill>\n"
+        "**Plans**\n"
+        "- <fill>\n"
+        "**Risks & Mitigations**\n"
+        "- <fill>\n"
+        "**Decision Points Ahead**\n"
+        "- <fill>\n"
+        "**Why it matters**\n"
+        "- <fill>\n\n"
+        "## Loot & Supplies\n"
+        "**Supplies:** <fill>\n"
+        "**Potions:** <fill>\n"
+        "**Valuables:** <fill>\n"
+        "**Weapons (Magic):** <fill>\n"
+        "**Weapons/Armor (Non-magical):** <fill>\n"
+        "**Magic item pending ID:** <fill>\n\n"
+        "## The Situation (one-page read)\n"
+        "<fill>\n\n"
+        "## This Season Recap for next game\n"
+        "<fill>\n\n"
+        "## What this covers (full-season recap)\n"
+        "<fill>\n"
+    )
+
+
+def _build_metadata_context(metadata: dict, session_key: str) -> str:
+    game_name = metadata.get("game_name")
+    session_date = metadata.get("session_date") or _format_session_date(session_key)
+    participants = metadata.get("participants", {})
+    characters = metadata.get("characters", {})
+
+    names_line = ", ".join(participants.values()) if participants else "Unknown"
+    party_lines = []
+    for user_id, name in participants.items():
+        character = characters.get(str(user_id))
+        if character:
+            party_lines.append(f"- {character} ({name})")
+    party_line = "\n".join(party_lines) if party_lines else "- Unknown"
+
+    game_line = session_date
+    if game_name:
+        game_line = f"{game_name} — {session_date}"
+
+    return (
+        f"Game/Date: {game_line}\n"
+        f"Participants: {names_line}\n"
+        f"Party (if known):\n{party_line}\n"
+    )
+
+
+def _summarize_transcript(
+    transcript_text: str, metadata: dict, session_key: str
+) -> str:
+    if not transcript_text.strip():
+        raise RuntimeError("Transcript is empty")
+
+    chunks = _chunk_text(transcript_text)
+    chunk_summaries: list[str] = []
+
+    for index, chunk in enumerate(chunks, start=1):
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You summarize D&D session transcript chunks. "
+                    "Extract accurate facts, names, places, events, combat, loot, "
+                    "plans, risks, and decisions. Be concise. "
+                    "Return a compact bullet list. Avoid speculation."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Chunk {index}/{len(chunks)}:\n{chunk}",
+            },
+        ]
+        chunk_summaries.append(_call_openai(messages, max_tokens=700))
+
+    combined_notes = "\n\n".join(chunk_summaries)
+    metadata_context = _build_metadata_context(metadata, session_key)
+
+    final_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a careful session summarizer. "
+                "Use only the notes provided, keep it accurate and concise. "
+                "Fill the markdown template exactly, replacing <fill>. "
+                "Use '-' bullets where appropriate. If info is missing, write 'None mentioned' or 'Unknown'."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Context:\n{metadata_context}\n"
+                "Chunk summaries:\n"
+                f"{combined_notes}\n\n"
+                "Template:\n"
+                f"{_summary_template()}"
+            ),
+        },
+    ]
+
+    return _call_openai(final_messages, max_tokens=1800)
 
 
 def _to_mono_16bit(pcm_data: bytes, channels: int, sample_width: int) -> bytes:
@@ -126,6 +350,9 @@ async def transcribe_session(
     bot,
     session_key: str,
     audio_paths: dict[str, str],  # user_id -> wav_path
+    *,
+    guild_id: int | None = None,
+    channel_id: int | None = None,
 ) -> None:
     session_folder = os.path.join(RECORDINGS_DIR, session_key)
     os.makedirs(session_folder, exist_ok=True)
@@ -211,11 +438,26 @@ async def transcribe_session(
                 f.write("=" * 50 + "\n\n")
                 f.write(f"Transcription failed: {e}")
 
+    metadata = _load_session_metadata(session_folder)
+
+    if guild_id is not None:
+        service = GameService()
+        mapping = service.get_mapping(guild_id, channel_id)
+        metadata["game_name"] = mapping.get("game_name")
+        metadata["characters"] = mapping.get("characters", {})
+    else:
+        service = GameService()
+
+    metadata["participants"] = participant_names
+    metadata.setdefault("session_date", _format_session_date(session_key))
+    _write_session_metadata(session_folder, metadata)
+
     # --- Combined transcript: overwrite every time ---
     recorded_users = [
         f"{participant_names[uid]} (<@{uid}>)" for uid in audio_paths.keys()
     ]
     combined_path = os.path.join(session_folder, "combined_transcript.txt")
+    combined_lines: list[str] = []
 
     with open(combined_path, "w", encoding="utf-8") as f:
         f.write("Combined Session Transcript\n")
@@ -227,11 +469,28 @@ async def transcribe_session(
             for start, user_id, text in _dedupe_segments(combined_segments):
                 name = participant_names.get(user_id, f"User {user_id}")
                 timestamp = _format_timestamp(start)
-                f.write(f"[{timestamp}] {name}: {text}\n")
+                line = f"[{timestamp}] {name}: {text}"
+                f.write(f"{line}\n")
+                combined_lines.append(line)
         else:
             for user_id, text in transcriptions.items():
                 name = participant_names.get(user_id, f"User {user_id}")
-                f.write(f"{name}: {text}\n")
+                line = f"{name}: {text}"
+                f.write(f"{line}\n")
+                combined_lines.append(line)
 
-    service = GameService()
+    if combined_lines:
+        try:
+            summary_text = await asyncio.to_thread(
+                _summarize_transcript,
+                "\n".join(combined_lines),
+                metadata,
+                session_key,
+            )
+            summary_path = os.path.join(session_folder, SUMMARY_FILE_NAME)
+            with open(summary_path, "w", encoding="utf-8") as f:
+                f.write(summary_text)
+        except Exception as e:
+            print(f"Summary generation failed: {e}")
+
     service.set_session_data(session_key, session_data)
