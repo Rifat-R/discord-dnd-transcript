@@ -346,6 +346,7 @@ async def transcribe_session(
     *,
     guild_id: int | None = None,
     channel_id: int | None = None,
+    session_date: str | None = None,
 ) -> None:
     session_folder = os.path.join(RECORDINGS_DIR, session_key)
     os.makedirs(session_folder, exist_ok=True)
@@ -434,6 +435,8 @@ async def transcribe_session(
         service = GameService()
 
     metadata["participants"] = participant_names
+    if session_date:
+        metadata.setdefault("session_date", session_date)
     metadata.setdefault("session_date", _format_session_date(session_key))
     _write_session_metadata(session_folder, metadata)
 

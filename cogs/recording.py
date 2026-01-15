@@ -2,6 +2,7 @@ import discord
 from discord.sinks import Sink
 from discord.ext import commands
 import os
+import re
 from datetime import datetime
 import whisper
 from services import GameService
@@ -18,6 +19,24 @@ class Recording(commands.Cog):
         self.connections = {}
         self.recordings_dir = "recordings"
         os.makedirs(self.recordings_dir, exist_ok=True)
+
+    def _slugify_name(self, name: str) -> str:
+        lowered = name.lower().strip()
+        cleaned = re.sub(r"[^a-z0-9]+", "-", lowered)
+        cleaned = cleaned.strip("-")
+        return cleaned or "session"
+
+    def _make_session_key(self, name: str) -> str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        base = f"{date_str} - {self._slugify_name(name)}"
+        candidate = base
+        suffix = 2
+
+        while os.path.exists(os.path.join(self.recordings_dir, candidate)):
+            candidate = f"{base} {suffix}"
+            suffix += 1
+
+        return candidate
 
     @discord.slash_command()
     async def start_recording(self, ctx: discord.ApplicationContext):
@@ -60,9 +79,14 @@ class Recording(commands.Cog):
         return paths
 
     async def once_done(self, sink: Sink, channel: discord.TextChannel, *args):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_key = f"session_{timestamp}"
+        service = GameService()
+        channel_game_name = service.get_game(channel.guild.id, channel.id)
+        global_game_name = service.get_game(channel.guild.id, None)
+        session_name = channel_game_name or global_game_name or channel.name
+
+        session_key = self._make_session_key(session_name)
         session_folder = os.path.join(self.recordings_dir, session_key)
+        session_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         await channel.send("🔄 Processing recordings and transcribing audio...")
 
@@ -73,6 +97,7 @@ class Recording(commands.Cog):
             audio_paths,
             guild_id=channel.guild.id if channel.guild else None,
             channel_id=channel.id,
+            session_date=session_date,
         )
 
         await sink.vc.disconnect()
@@ -119,8 +144,10 @@ class Recording(commands.Cog):
                 description="\n".join(sessions[:10]),  # Limit to 10 sessions
                 color=discord.Color.blue(),
             )
+            footer = "Use the exact session name for /get_transcript or /re_transcribe."
             if len(sessions) > 10:
-                embed.set_footer(text=f"...and {len(sessions) - 10} more sessions")
+                footer = f"...and {len(sessions) - 10} more sessions. {footer}"
+            embed.set_footer(text=footer)
             await ctx.respond(embed=embed, ephemeral=True)
 
     @discord.slash_command()
@@ -197,10 +224,12 @@ class Recording(commands.Cog):
                 description="\n".join(transcripts[:10]),  # Limit to 10 sessions
                 color=discord.Color.green(),
             )
+            footer = "Use the exact session name for /get_transcript or /re_transcribe."
             if len(transcripts) > 10:
-                embed.set_footer(
-                    text=f"...and {len(transcripts) - 10} more transcript sessions"
+                footer = (
+                    f"...and {len(transcripts) - 10} more transcript sessions. {footer}"
                 )
+            embed.set_footer(text=footer)
             await ctx.respond(embed=embed, ephemeral=True)
 
     @discord.slash_command(description="Re-transcribe audio for a specific session")
@@ -236,14 +265,9 @@ class Recording(commands.Cog):
             await ctx.respond("No recordings found.", ephemeral=True)
             return
 
-        # Find the session folder
-        session_folder = None
-        for folder in os.listdir(self.recordings_dir):
-            if session in folder:  # Allow partial match for convenience
-                session_folder = os.path.join(self.recordings_dir, folder)
-                break
+        session_folder = os.path.join(self.recordings_dir, session)
 
-        if not session_folder or not os.path.exists(session_folder):
+        if not os.path.exists(session_folder):
             await ctx.respond(f"Session '{session}' not found.", ephemeral=True)
             return
 

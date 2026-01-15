@@ -40,15 +40,10 @@ class Admin(commands.Cog):
             await ctx.respond(f"❌ Failed to sync commands: {str(e)}", ephemeral=True)
 
     @discord.slash_command(
-        name="list_commands", description="List all registered commands (admin only)"
+        name="list_commands", description="List all registered commands"
     )
     async def list_commands(self, ctx: discord.ApplicationContext):
         """List all registered commands"""
-        if not self._is_admin(ctx):
-            await ctx.respond(
-                "❌ You need admin permissions to use this command.", ephemeral=True
-            )
-            return
 
         await ctx.defer(ephemeral=True)
 
