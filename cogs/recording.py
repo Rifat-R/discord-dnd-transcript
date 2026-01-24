@@ -105,7 +105,8 @@ class Recording(commands.Cog):
         embed = discord.Embed(
             title="✅ Recording and Transcription Complete",
             description=f"Session ID: `{session_key}`\n"
-            f"Use `/get_transcript session:{session_key}` to retrieve transcripts.",
+            f"Use `/get_transcript session:{session_key}` to retrieve transcripts.\n"
+            f"Use `/get_summary session:{session_key}` to retrieve the summary.",
             color=discord.Color.green(),
         )
         await channel.send(embed=embed)
