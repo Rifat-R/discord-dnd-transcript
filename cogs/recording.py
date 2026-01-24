@@ -80,9 +80,15 @@ class Recording(commands.Cog):
 
     async def once_done(self, sink: Sink, channel: discord.TextChannel, *args):
         service = GameService()
-        channel_game_name = service.get_game(channel.guild.id, channel.id)
+        voice_channel = sink.vc.channel if sink.vc else None
+        voice_channel_id = voice_channel.id if voice_channel else None
+        channel_game_name = service.get_game(channel.guild.id, voice_channel_id)
         global_game_name = service.get_game(channel.guild.id, None)
-        session_name = channel_game_name or global_game_name or channel.name
+        session_name = (
+            channel_game_name
+            or global_game_name
+            or (voice_channel.name if voice_channel else channel.name)
+        )
 
         session_key = self._make_session_key(session_name)
         session_folder = os.path.join(self.recordings_dir, session_key)
