@@ -355,6 +355,16 @@ async def transcribe_session(
     session_data: SessionData = {}
     combined_segments: list[tuple[float, str, str]] = []
 
+    service = GameService()
+    channel_characters: dict[str, str] = {}
+    global_characters: dict[str, str] = {}
+
+    if guild_id is not None:
+        channel_characters = service.get_mapping(guild_id, channel_id).get(
+            "characters", {}
+        )
+        global_characters = service.get_mapping(guild_id, None).get("characters", {})
+
     # If you want the combined transcript to show names too:
     participant_names: dict[str, str] = {}
 
@@ -368,6 +378,12 @@ async def transcribe_session(
             display_name = user.name  # or user.display_name if you have a Member
         except Exception:
             pass
+
+        mapped_name = channel_characters.get(str(user_id)) or global_characters.get(
+            str(user_id)
+        )
+        if mapped_name:
+            display_name = mapped_name
 
         participant_names[user_id] = display_name
 
@@ -427,12 +443,13 @@ async def transcribe_session(
     metadata = _load_session_metadata(session_folder)
 
     if guild_id is not None:
-        service = GameService()
         mapping = service.get_mapping(guild_id, channel_id)
         metadata["game_name"] = mapping.get("game_name")
-        metadata["characters"] = mapping.get("characters", {})
-    else:
-        service = GameService()
+
+        merged_characters = channel_characters.copy()
+        for user_id, character in global_characters.items():
+            merged_characters.setdefault(user_id, character)
+        metadata["characters"] = merged_characters
 
     metadata["participants"] = participant_names
     if session_date:
