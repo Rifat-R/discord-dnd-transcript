@@ -297,6 +297,34 @@ class Recording(commands.Cog):
                 )
 
     @discord.slash_command()
+    async def get_summary(self, ctx: discord.ApplicationContext, session: str):
+        """Get transcript from a specific session"""
+        if not os.path.exists(self.recordings_dir):
+            await ctx.respond("No recordings found.", ephemeral=True)
+            return
+
+        session_folder = os.path.join(self.recordings_dir, session)
+
+        if not os.path.exists(session_folder):
+            await ctx.respond(f"Session '{session}' not found.", ephemeral=True)
+            return
+
+        combined_transcript = os.path.join(session_folder, "combined_summary.md")
+        if os.path.exists(combined_transcript):
+            await ctx.respond(
+                f"📄 **Summary file** for session {os.path.basename(session_folder)}:",
+                file=discord.File(
+                    combined_transcript,
+                    f"summary_{os.path.basename(session_folder)}.md",
+                ),
+                ephemeral=True,
+            )
+        else:
+            await ctx.respond(
+                f"No summary file found in session `{session}`.", ephemeral=True
+            )
+
+    @discord.slash_command()
     async def transcription_status(self, ctx: discord.ApplicationContext):
         """Check transcription system status"""
         embed = discord.Embed(
