@@ -64,22 +64,29 @@ class Recording(commands.Cog):
     ) -> str:
         os.makedirs(session_folder, exist_ok=True)
 
-        audio_files = []
-        for audio in sink.audio_data.values():
+        segments = []
+        for user_id, audio in sink.audio_data.items():
             audio.file.seek(0)
-            audio_files.append(audio.file)
 
-        if not audio_files:
-            raise ValueError("No audio files found in sink data.")
+            try:
+                seg = AudioSegment.from_file(audio.file)
+                print(f"SEGMENT LENGTH for user {user_id}: {len(seg)} ms")
+                if len(seg) > 0:
+                    segments.append(seg)
+            except Exception as e:
+                print(f"Skipping user {user_id}: {e}")
 
-        segments = [AudioSegment.from_wav(audio) for audio in audio_files]
+        if not segments:
+            raise ValueError("No valid audio segments found to combine.")
 
+        # Calculate the longest audio clip to ensure no one gets cut off
         max_length_ms = max(len(seg) for seg in segments)
 
         padded_segments = []
         for seg in segments:
             if len(seg) < max_length_ms:
-                seg += AudioSegment.silent(duration=max_length_ms - len(seg))
+                silence = AudioSegment.silent(duration=max_length_ms - len(seg))
+                seg += silence
             padded_segments.append(seg)
 
         combined = padded_segments[0]
