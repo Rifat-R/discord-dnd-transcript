@@ -10,7 +10,9 @@ import webrtcvad
 import whisper
 from openai import OpenAI
 from services import GameService, SessionData
+import logging
 
+logger = logging.getLogger(__name__)
 whisper_model = whisper.load_model("base")
 
 
@@ -18,6 +20,10 @@ RECORDINGS_DIR = "recordings"
 SUMMARY_FILE_NAME = "combined_summary.md"
 METADATA_FILE_NAME = "session_metadata.json"
 OPENAI_MODEL = "gpt-4.1-mini"
+
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    logger.error("OPENAI_API_KEY environment variable not set")
 
 
 def _safe_name(name: str) -> str:
@@ -97,14 +103,10 @@ def _chunk_text(text: str, max_chars: int = 12000) -> list[str]:
 
 
 def _call_openai(messages: list[dict[str, str]], max_tokens: int = 900) -> str:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
     client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
-        messages=messages,
+        messages=messages,  # type: ignore
         temperature=0.2,
         max_tokens=max_tokens,
     )
@@ -197,6 +199,9 @@ def _summarize_transcript(
 ) -> str:
     if not transcript_text.strip():
         raise RuntimeError("Transcript is empty")
+
+    if api_key is None:
+        raise RuntimeError("OpenAI API key is not set")
 
     chunks = _chunk_text(transcript_text)
     chunk_summaries: list[str] = []
@@ -398,24 +403,12 @@ async def transcribe_session(
 
         # --- Transcribe ---
         try:
-            result = whisper_model.transcribe(
-                wav_path,
-                language="en",
-                task="transcribe",
-                temperature=0.0,
-                condition_on_previous_text=False,
-            )
-            result_dict = result if isinstance(result, dict) else {}
-            transcription_text = str(result_dict.get("text", ""))
-            transcriptions[user_id] = transcription_text
+            client = OpenAI(api_key=api_key)
+            transcription_text = client.audio.transcriptions.create(
+                file=open(wav_path, "rb"), model="gpt-4o-transcribe"
+            ).text
 
-            for segment in result_dict.get("segments", []) or []:
-                if not isinstance(segment, dict):
-                    continue
-                start = float(segment.get("start", 0.0))
-                text = str(segment.get("text", "")).strip()
-                if text:
-                    combined_segments.append((start, user_id, text))
+            transcriptions[user_id] = transcription_text
 
             # Overwrite transcript for this user every time
             transcription_path = os.path.join(
