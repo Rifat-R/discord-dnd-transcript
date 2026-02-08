@@ -347,7 +347,7 @@ def _dedupe_segments(
 async def transcribe_session(
     bot,
     session_key: str,
-    audio_paths: dict[str, str],  # user_id -> wav_path
+    audio_paths: str,
     *,
     guild_id: int | None = None,
     channel_id: int | None = None,
@@ -355,140 +355,118 @@ async def transcribe_session(
 ) -> None:
     session_folder = os.path.join(RECORDINGS_DIR, session_key)
     os.makedirs(session_folder, exist_ok=True)
-
-    transcriptions: dict[str, str] = {}
-    session_data: SessionData = {}
-    combined_segments: list[tuple[float, str, str]] = []
-
-    service = GameService()
-    channel_characters: dict[str, str] = {}
-    global_characters: dict[str, str] = {}
-
-    if guild_id is not None:
-        channel_characters = service.get_mapping(guild_id, channel_id).get(
-            "characters", {}
-        )
-        global_characters = service.get_mapping(guild_id, None).get("characters", {})
-
-    # If you want the combined transcript to show names too:
-    participant_names: dict[str, str] = {}
-
-    for user_id, wav_path in audio_paths.items():
-        # --- Resolve a nice display name ---
-        display_name = f"User {user_id}"
-        try:
-            # pycord expects an int user id
-            uid_int = int(user_id)
-            user = await bot.fetch_user(uid_int)
-            display_name = user.name  # or user.display_name if you have a Member
-        except Exception:
-            pass
-
-        mapped_name = channel_characters.get(str(user_id)) or global_characters.get(
-            str(user_id)
-        )
-        if mapped_name:
-            display_name = mapped_name
-
-        participant_names[user_id] = display_name
-
-        # --- Keep a stable filename base for overwriting ---
-        base = f"{_safe_name(display_name)}_{user_id}"
-        wav_filename = os.path.basename(wav_path)
-
-        # Store mapping for later retrieval (you can store wav_filename OR base + extension)
-        session_data[user_id] = wav_filename
-
-        print(f"Transcribing audio for {display_name} ({user_id}) from {wav_path}...")
-
-        # --- Transcribe ---
-        try:
-            client = OpenAI(api_key=api_key)
-            transcription_text = client.audio.transcriptions.create(
-                file=open(wav_path, "rb"), model="gpt-4o-transcribe"
-            ).text
-
-            transcriptions[user_id] = transcription_text
-
-            # Overwrite transcript for this user every time
-            transcription_path = os.path.join(
-                session_folder, f"{base}_transcription.txt"
-            )
-            with open(transcription_path, "w", encoding="utf-8") as f:
-                f.write(f"Session: {session_key}\n")
-                f.write(f"User: {display_name} (ID: {user_id})\n")
-                f.write("=" * 50 + "\n\n")
-                f.write(transcription_text)
-
-        except Exception as e:
-            transcriptions[user_id] = f"Transcription failed: {e}"
-
-            # still overwrite error transcript so it reflects latest run
-            transcription_path = os.path.join(
-                session_folder, f"{base}_transcription.txt"
-            )
-            with open(transcription_path, "w", encoding="utf-8") as f:
-                f.write(f"Session: {session_key}\n")
-                f.write(f"User: {display_name} (ID: {user_id})\n")
-                f.write("=" * 50 + "\n\n")
-                f.write(f"Transcription failed: {e}")
-
-    metadata = _load_session_metadata(session_folder)
-
-    if guild_id is not None:
-        mapping = service.get_mapping(guild_id, channel_id)
-        metadata["game_name"] = mapping.get("game_name")
-
-        merged_characters = channel_characters.copy()
-        for user_id, character in global_characters.items():
-            merged_characters.setdefault(user_id, character)
-        metadata["characters"] = merged_characters
-
-    metadata["participants"] = participant_names
-    if session_date:
-        metadata.setdefault("session_date", session_date)
-    metadata.setdefault("session_date", _format_session_date(session_key))
-    _write_session_metadata(session_folder, metadata)
-
-    # --- Combined transcript: overwrite every time ---
-    recorded_users = [
-        f"{participant_names[uid]} (<@{uid}>)" for uid in audio_paths.keys()
-    ]
-    combined_path = os.path.join(session_folder, "combined_transcript.txt")
-    combined_lines: list[str] = []
-
-    with open(combined_path, "w", encoding="utf-8") as f:
-        f.write("Combined Session Transcript\n")
-        f.write(f"{session_key}\n")
-        f.write(f"Participants: {', '.join(recorded_users)}\n")
-        f.write("=" * 50 + "\n\n")
-
-        if combined_segments:
-            for start, user_id, text in _dedupe_segments(combined_segments):
-                name = participant_names.get(user_id, f"User {user_id}")
-                timestamp = _format_timestamp(start)
-                line = f"[{timestamp}] {name}: {text}"
-                f.write(f"{line}\n")
-                combined_lines.append(line)
-        else:
-            for user_id, text in transcriptions.items():
-                name = participant_names.get(user_id, f"User {user_id}")
-                line = f"{name}: {text}"
-                f.write(f"{line}\n")
-                combined_lines.append(line)
-
-    if combined_lines:
-        try:
-            summary_text = await asyncio.to_thread(
-                _summarize_transcript,
-                "\n".join(combined_lines),
-                metadata,
-                session_key,
-            )
-            summary_path = os.path.join(session_folder, SUMMARY_FILE_NAME)
-            with open(summary_path, "w", encoding="utf-8") as f:
-                f.write(summary_text)
-        except Exception as e:
-            print(f"Summary generation failed: {e}")
-
-    service.set_session_data(session_key, session_data)
+    return
+    #
+    # transcriptions: dict[str, str] = {}
+    # session_data: SessionData = {}
+    # combined_segments: list[tuple[float, str, str]] = []
+    #
+    # service = GameService()
+    # channel_characters: dict[str, str] = {}
+    # global_characters: dict[str, str] = {}
+    #
+    # if guild_id is not None:
+    #     channel_characters = service.get_mapping(guild_id, channel_id).get(
+    #         "characters", {}
+    #     )
+    #     global_characters = service.get_mapping(guild_id, None).get("characters", {})
+    #
+    # # If you want the combined transcript to show names too:
+    # participant_names: dict[str, str] = {}
+    #
+    #     wav_filename = os.path.basename(wav_path)
+    #     # Store mapping for later retrieval (you can store wav_filename OR base + extension)
+    #     session_data[user_id] = wav_filename
+    #
+    #     print(f"Transcribing audio for {display_name} ({user_id}) from {wav_path}...")
+    #
+    #     try:
+    #         client = OpenAI(api_key=api_key)
+    #         transcription_text = client.audio.transcriptions.create(
+    #             file=open(wav_path, "rb"), model="gpt-4o-transcribe"
+    #         ).text
+    #
+    #         transcriptions[user_id] = transcription_text
+    #
+    #         # Overwrite transcript for this user every time
+    #         transcription_path = os.path.join(
+    #             session_folder, f"{base}_transcription.txt"
+    #         )
+    #         with open(transcription_path, "w", encoding="utf-8") as f:
+    #             f.write(f"Session: {session_key}\n")
+    #             f.write(f"User: {display_name} (ID: {user_id})\n")
+    #             f.write("=" * 50 + "\n\n")
+    #             f.write(transcription_text)
+    #
+    #     except Exception as e:
+    #         transcriptions[user_id] = f"Transcription failed: {e}"
+    #
+    #         # still overwrite error transcript so it reflects latest run
+    #         transcription_path = os.path.join(
+    #             session_folder, f"{base}_transcription.txt"
+    #         )
+    #         with open(transcription_path, "w", encoding="utf-8") as f:
+    #             f.write(f"Session: {session_key}\n")
+    #             f.write(f"User: {display_name} (ID: {user_id})\n")
+    #             f.write("=" * 50 + "\n\n")
+    #             f.write(f"Transcription failed: {e}")
+    #
+    # metadata = _load_session_metadata(session_folder)
+    #
+    # if guild_id is not None:
+    #     mapping = service.get_mapping(guild_id, channel_id)
+    #     metadata["game_name"] = mapping.get("game_name")
+    #
+    #     merged_characters = channel_characters.copy()
+    #     for user_id, character in global_characters.items():
+    #         merged_characters.setdefault(user_id, character)
+    #     metadata["characters"] = merged_characters
+    #
+    # metadata["participants"] = participant_names
+    # if session_date:
+    #     metadata.setdefault("session_date", session_date)
+    # metadata.setdefault("session_date", _format_session_date(session_key))
+    # _write_session_metadata(session_folder, metadata)
+    #
+    # # --- Combined transcript: overwrite every time ---
+    # recorded_users = [
+    #     f"{participant_names[uid]} (<@{uid}>)" for uid in audio_paths.keys()
+    # ]
+    # combined_path = os.path.join(session_folder, "combined_transcript.txt")
+    # combined_lines: list[str] = []
+    #
+    # with open(combined_path, "w", encoding="utf-8") as f:
+    #     f.write("Combined Session Transcript\n")
+    #     f.write(f"{session_key}\n")
+    #     f.write(f"Participants: {', '.join(recorded_users)}\n")
+    #     f.write("=" * 50 + "\n\n")
+    #
+    #     if combined_segments:
+    #         for start, user_id, text in _dedupe_segments(combined_segments):
+    #             name = participant_names.get(user_id, f"User {user_id}")
+    #             timestamp = _format_timestamp(start)
+    #             line = f"[{timestamp}] {name}: {text}"
+    #             f.write(f"{line}\n")
+    #             combined_lines.append(line)
+    #     else:
+    #         for user_id, text in transcriptions.items():
+    #             name = participant_names.get(user_id, f"User {user_id}")
+    #             line = f"{name}: {text}"
+    #             f.write(f"{line}\n")
+    #             combined_lines.append(line)
+    #
+    # if combined_lines:
+    #     try:
+    #         summary_text = await asyncio.to_thread(
+    #             _summarize_transcript,
+    #             "\n".join(combined_lines),
+    #             metadata,
+    #             session_key,
+    #         )
+    #         summary_path = os.path.join(session_folder, SUMMARY_FILE_NAME)
+    #         with open(summary_path, "w", encoding="utf-8") as f:
+    #             f.write(summary_text)
+    #     except Exception as e:
+    #         print(f"Summary generation failed: {e}")
+    #
+    # service.set_session_data(session_key, session_data)

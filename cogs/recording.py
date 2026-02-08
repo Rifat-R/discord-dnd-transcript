@@ -7,12 +7,10 @@ from datetime import datetime
 import whisper
 from services import GameService
 from helpers import transcribe_session
+from pydub import AudioSegment
 
 
 # Load a faster model for real-time transcription
-whisper_model = whisper.load_model("base")
-
-
 class Recording(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -54,40 +52,55 @@ class Recording(commands.Cog):
         self.connections.update({ctx.guild.id: vc})
 
         vc.start_recording(
-            discord.sinks.WaveSink(),  # The sink type to use.
-            self.once_done,  # What to do once done.
-            ctx.channel,  # The channel to disconnect from.
+            discord.sinks.WaveSink(),
+            self.once_done,
+            ctx.channel,
+            sync_start=True,
         )
         await ctx.respond("Started recording!")
 
-    def _save_wavs_from_sink(self, session_folder: str, sink) -> dict[str, str]:
+    def _save_combined_wav_from_sink(
+        self, session_folder: str, sink: discord.sinks.Sink
+    ) -> str:
         os.makedirs(session_folder, exist_ok=True)
 
-        paths: dict[str, str] = {}
-
-        for user_id, audio in sink.audio_data.items():
-            # audio.file is file-like (BytesIO/SpooledTemporaryFile)
-            wav_filename = f"{user_id}.wav"
-            wav_path = os.path.join(session_folder, wav_filename)
-
+        audio_files = []
+        for audio in sink.audio_data.values():
             audio.file.seek(0)
-            with open(wav_path, "wb") as f:
-                f.write(audio.file.read())
+            audio_files.append(audio.file)
 
-            paths[str(user_id)] = wav_path
+        if not audio_files:
+            raise ValueError("No audio files found in sink data.")
 
-        return paths
+        segments = [AudioSegment.from_wav(audio) for audio in audio_files]
+
+        max_length_ms = max(len(seg) for seg in segments)
+
+        padded_segments = []
+        for seg in segments:
+            if len(seg) < max_length_ms:
+                seg += AudioSegment.silent(duration=max_length_ms - len(seg))
+            padded_segments.append(seg)
+
+        combined = padded_segments[0]
+        for seg in padded_segments[1:]:
+            combined = combined.overlay(seg)
+
+        combined_path = os.path.join(session_folder, "combined_audio.wav")
+        combined.export(combined_path, format="wav")
+
+        return combined_path
 
     async def once_done(self, sink: Sink, channel: discord.TextChannel, *args):
         service = GameService()
         voice_channel = sink.vc.channel if sink.vc else None
-        voice_channel_id = voice_channel.id if voice_channel else None
+        voice_channel_id = voice_channel.id if voice_channel else None  # type: ignore
         channel_game_name = service.get_game(channel.guild.id, voice_channel_id)
         global_game_name = service.get_game(channel.guild.id, None)
         session_name = (
             channel_game_name
             or global_game_name
-            or (voice_channel.name if voice_channel else channel.name)
+            or (voice_channel.name if voice_channel else channel.name)  # type: ignore
         )
 
         session_key = self._make_session_key(session_name)
@@ -96,7 +109,7 @@ class Recording(commands.Cog):
 
         await channel.send("🔄 Processing recordings and transcribing audio...")
 
-        audio_paths = self._save_wavs_from_sink(session_folder, sink)
+        audio_paths = self._save_combined_wav_from_sink(session_folder, sink)
         await transcribe_session(
             self.bot,
             session_key,
@@ -252,15 +265,12 @@ class Recording(commands.Cog):
 
         session_folder = os.path.join(self.recordings_dir, session_id)
 
-        audio_paths = {
-            user_id: os.path.join(session_folder, wav_filename)
-            for user_id, wav_filename in data.items()
-        }
+        audio_path = os.path.join(session_folder, "combined_audio.wav")
 
         await ctx.respond(
             f"🔄 Re-transcribing audio for session '{session_id}'...", ephemeral=True
         )
-        await transcribe_session(self.bot, session_id, audio_paths)
+        await transcribe_session(self.bot, session_id, audio_path)
         await ctx.respond(
             f"✅ Re-transcription complete for session '{session_id}'.", ephemeral=True
         )
