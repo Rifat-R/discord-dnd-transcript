@@ -1,3 +1,4 @@
+from pathlib import Path
 import discord
 from discord.sinks import Sink
 from discord.ext import commands
@@ -66,6 +67,15 @@ class Recording(commands.Cog):
                 "utf-8"
             )
 
+    def _safe_name(self, name: str) -> str:
+        # keep filenames safe and stable
+        return (
+            name.replace(" ", "_")
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace("..", "_")
+        )
+
     def _get_known_speaker_data_from_sink(
         self,
         session_folder_path: str,
@@ -76,22 +86,22 @@ class Recording(commands.Cog):
         known_speaker_names = []
         known_speaker_references = []
         service = GameService()
+        known_speakers_folder = os.path.join(session_folder_path, "known_speakers")
+        os.makedirs(known_speakers_folder, exist_ok=True)
 
         for user_id, audio in sink.audio_data.items():
             # audio.file is file-like (BytesIO/SpooledTemporaryFile)
-            wav_filename = f"{user_id}.wav"
-            wav_path = os.path.join(session_folder_path, wav_filename)
-
-            audio.file.seek(0)
-            with open(wav_path, "wb") as f:
-                save_silence_removed_audio(audio.file, wav_path)
-
-            # this is quite pretty
 
             character_name = (
                 service.get_character(guild_id, user_id, channel_id) or user_id
             )
             print(f"Mapping user {user_id} to character '{character_name}'")
+            wav_filename = f"{self._safe_name(character_name)}.wav"
+            wav_path = os.path.join(known_speakers_folder, wav_filename)
+
+            audio.file.seek(0)
+            with open(wav_path, "wb") as f:
+                save_silence_removed_audio(audio.file, wav_path)
 
             known_speaker_names.append(character_name)
             data_url = self._to_data_url(wav_path)
@@ -301,23 +311,38 @@ class Recording(commands.Cog):
 
     @discord.slash_command(description="Re-transcribe audio for a specific session")
     async def re_transcribe(self, ctx: discord.ApplicationContext, session_id: str):
-        service = GameService()
-        data = service.get_session_data(session_id)  # user_id -> wav_filename
-
-        if not data:
-            await ctx.respond(
-                f"No session data found for '{session_id}'.", ephemeral=True
-            )
-            return
-
         session_folder = os.path.join(self.recordings_dir, session_id)
+        # TODO: need to have known speaker folder path as a constant
+        known_speakers_folder = Path(session_folder) / "known_speakers"
+        known_speaker_data = None
+        if os.path.exists(known_speakers_folder):
+            known_speaker_names = []
+            known_speaker_references = []
+
+            for audio_file in known_speakers_folder.glob("*.wav"):
+                character_name = audio_file.stem
+                full_path = str(audio_file)
+                known_speaker_names.append(character_name)
+                known_speaker_references.append(self._to_data_url(full_path))
+
+            known_speaker_data = KnownSpeakerData(
+                known_speaker_names=known_speaker_names,
+                known_speaker_references=known_speaker_references,
+            )
+        else:
+            await ctx.respond(
+                f"⚠️ No known speaker data found for session '{session_id}'. "
+                "Re-transcription will proceed without speaker identification.",
+                ephemeral=True,
+            )
 
         audio_path = os.path.join(session_folder, "combined_audio.wav")
 
         await ctx.respond(
             f"🔄 Re-transcribing audio for session '{session_id}'...", ephemeral=True
         )
-        await transcribe_session(session_folder, audio_path)
+
+        await transcribe_session(session_folder, audio_path, known_speaker_data)
         await ctx.respond(
             f"✅ Re-transcription complete for session '{session_id}'.", ephemeral=True
         )

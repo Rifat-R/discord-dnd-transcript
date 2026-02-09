@@ -20,13 +20,6 @@ if not api_key:
     logger.error("OPENAI_API_KEY environment variable not set")
 
 
-def _safe_name(name: str) -> str:
-    # keep filenames safe and stable
-    return (
-        name.replace(" ", "_").replace("/", "_").replace("\\", "_").replace("..", "_")
-    )
-
-
 def _load_session_metadata(session_folder: str) -> dict:
     metadata_path = os.path.join(session_folder, METADATA_FILE_NAME)
     if not os.path.exists(metadata_path):
@@ -220,7 +213,7 @@ def _summarize_transcript(transcript_text: str, metadata: dict) -> str:
 async def transcribe_session(
     session_folder_path: str,
     audio_path: str,
-    known_speaker_data: KnownSpeakerData,
+    known_speaker_data: KnownSpeakerData | None,
 ) -> None:
     client = OpenAI(api_key=api_key)
 
@@ -230,7 +223,7 @@ async def transcribe_session(
             file=audio_file,
             response_format="diarized_json",
             chunking_strategy="auto",
-            extra_body=known_speaker_data,
+            extra_body=known_speaker_data or {},
         )
     diarized_transcript_path = os.path.join(
         session_folder_path, "combined_transcript.txt"

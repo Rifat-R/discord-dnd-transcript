@@ -51,7 +51,7 @@ def save_silence_removed_audio(audio_buffer: io.BytesIO, output_path: str) -> No
         combined = combined[:new_duration_ms]  # type: ignore
 
         print(
-            f"Audio truncated from {current_size / 1024:.1f}KB to {len(combined.raw_data) / 1024:.1f}KB"
+            f"Audio truncated from {current_size / 1024:.1f}KB to {len(combined.raw_data) / 1024:.1f}KB for key speaker reference."
         )
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
