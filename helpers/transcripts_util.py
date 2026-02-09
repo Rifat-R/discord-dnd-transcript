@@ -241,3 +241,13 @@ async def transcribe_session(
             f.write(
                 f"[{segment.start:.2f} - {segment.end:.2f}] - {segment.speaker}: {segment.text}\n"
             )
+
+    metadata = _load_session_metadata(session_folder_path)
+    summary = _summarize_transcript(
+        transcript_text=open(diarized_transcript_path, "r", encoding="utf-8").read(),
+        metadata=metadata,
+    )
+
+    summary_path = os.path.join(session_folder_path, SUMMARY_FILE_NAME)
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write(summary)

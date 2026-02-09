@@ -9,7 +9,7 @@ def save_silence_removed_audio(audio_buffer: io.BytesIO, output_path: str) -> No
     Reads audio from a BytesIO buffer, removes silence, trims to max 700KB,
     saves to disk, and returns None.
     """
-    MAX_SIZE_KB = 800  # Target file size limit
+    MAX_SIZE_KB = 700  # Target file size limit
     MAX_BYTES = MAX_SIZE_KB * 1024
 
     # Ensure pointer is at the start
