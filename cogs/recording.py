@@ -4,7 +4,6 @@ from discord.ext import commands
 import os
 import re
 from datetime import datetime
-import whisper
 from services import GameService
 from helpers import transcribe_session
 from pydub import AudioSegment
@@ -111,14 +110,12 @@ class Recording(commands.Cog):
         )
 
         session_key = self._make_session_key(session_name)
-        session_folder = os.path.join(self.recordings_dir, session_key)
-        session_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+        session_folder_path = os.path.join(self.recordings_dir, session_key)
         await channel.send("🔄 Processing recordings and transcribing audio...")
 
-        audio_path = self._save_combined_wav_from_sink(session_folder, sink)
+        audio_path = self._save_combined_wav_from_sink(session_folder_path, sink)
         await transcribe_session(
-            session_key,
+            session_folder_path,
             audio_path,
         )
 
@@ -135,7 +132,10 @@ class Recording(commands.Cog):
 
     @discord.slash_command()
     async def stop_recording(self, ctx):
-        """Stop recording audio in the current voice channel to save files and see transcriptions"""
+        """
+        Stop recording audio in the current voice channel to save files and see transcriptions.
+        This also triggers once_done function.
+        """
         if ctx.guild.id in self.connections:
             vc = self.connections[ctx.guild.id]
             vc.stop_recording()
@@ -273,7 +273,7 @@ class Recording(commands.Cog):
         await ctx.respond(
             f"🔄 Re-transcribing audio for session '{session_id}'...", ephemeral=True
         )
-        await transcribe_session(self.bot, session_id, audio_path)
+        await transcribe_session(session_folder, audio_path)
         await ctx.respond(
             f"✅ Re-transcription complete for session '{session_id}'.", ephemeral=True
         )

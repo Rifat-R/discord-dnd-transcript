@@ -33,33 +33,6 @@ def _safe_name(name: str) -> str:
     )
 
 
-def _format_timestamp(seconds: float) -> str:
-    total_seconds = max(int(seconds), 0)
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    secs = total_seconds % 60
-    if hours:
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    return f"{minutes:02d}:{secs:02d}"
-
-
-def _parse_session_datetime(session_key: str) -> datetime | None:
-    if not session_key.startswith("session_"):
-        return None
-    timestamp = session_key.replace("session_", "", 1)
-    try:
-        return datetime.strptime(timestamp, "%Y%m%d_%H%M%S")
-    except ValueError:
-        return None
-
-
-def _format_session_date(session_key: str, fallback: str = "Unknown date") -> str:
-    parsed = _parse_session_datetime(session_key)
-    if not parsed:
-        return fallback
-    return parsed.strftime("%Y-%m-%d %H:%M:%S")
-
-
 def _load_session_metadata(session_folder: str) -> dict:
     metadata_path = os.path.join(session_folder, METADATA_FILE_NAME)
     if not os.path.exists(metadata_path):
@@ -169,9 +142,9 @@ def _summary_template() -> str:
     )
 
 
-def _build_metadata_context(metadata: dict, session_key: str) -> str:
+def _build_metadata_context(metadata: dict) -> str:
     game_name = metadata.get("game_name")
-    session_date = metadata.get("session_date") or _format_session_date(session_key)
+    session_date = metadata.get("session_date")
     participants = metadata.get("participants", {})
     characters = metadata.get("characters", {})
 
@@ -194,9 +167,7 @@ def _build_metadata_context(metadata: dict, session_key: str) -> str:
     )
 
 
-def _summarize_transcript(
-    transcript_text: str, metadata: dict, session_key: str
-) -> str:
+def _summarize_transcript(transcript_text: str, metadata: dict) -> str:
     if not transcript_text.strip():
         raise RuntimeError("Transcript is empty")
 
@@ -225,7 +196,7 @@ def _summarize_transcript(
         chunk_summaries.append(_call_openai(messages, max_tokens=700))
 
     combined_notes = "\n\n".join(chunk_summaries)
-    metadata_context = _build_metadata_context(metadata, session_key)
+    metadata_context = _build_metadata_context(metadata)
 
     final_messages = [
         {
@@ -252,104 +223,10 @@ def _summarize_transcript(
     return _call_openai(final_messages, max_tokens=1800)
 
 
-def _to_mono_16bit(pcm_data: bytes, channels: int, sample_width: int) -> bytes:
-    if sample_width == 1:
-        audio = np.frombuffer(pcm_data, dtype=np.uint8).astype(np.int16)
-        audio = (audio - 128) << 8
-    elif sample_width == 2:
-        audio = np.frombuffer(pcm_data, dtype=np.int16)
-    elif sample_width == 4:
-        audio = np.frombuffer(pcm_data, dtype=np.int32)
-        audio = (audio / 65536).astype(np.int16)
-    else:
-        raise ValueError("Unsupported sample width")
-
-    if channels > 1:
-        audio = audio.reshape(-1, channels).mean(axis=1).astype(np.int16)
-
-    return audio.tobytes()
-
-
-def _trim_audio_with_vad(wav_path: str, output_path: str) -> str:
-    with wave.open(wav_path, "rb") as wav_file:
-        sample_rate = wav_file.getframerate()
-        channels = wav_file.getnchannels()
-        sample_width = wav_file.getsampwidth()
-        pcm_data = wav_file.readframes(wav_file.getnframes())
-
-    mono_pcm = _to_mono_16bit(pcm_data, channels, sample_width)
-
-    vad = webrtcvad.Vad(2)
-    frame_duration_ms = 30
-    frame_size = int(sample_rate * frame_duration_ms / 1000)
-    frame_bytes = frame_size * 2
-    if frame_size == 0:
-        return wav_path
-
-    frames = [
-        mono_pcm[i : i + frame_bytes]
-        for i in range(0, len(mono_pcm) - frame_bytes + 1, frame_bytes)
-    ]
-
-    padding_ms = 300
-    num_padding_frames = max(int(padding_ms / frame_duration_ms), 1)
-    ring_buffer = collections.deque(maxlen=num_padding_frames)
-    voiced_frames: list[bytes] = []
-    triggered = False
-
-    for frame in frames:
-        is_speech = vad.is_speech(frame, sample_rate)
-        if not triggered:
-            ring_buffer.append((frame, is_speech))
-            num_voiced = sum(1 for _, speech in ring_buffer if speech)
-            if num_voiced > 0.9 * num_padding_frames:
-                triggered = True
-                voiced_frames.extend(f for f, _ in ring_buffer)
-                ring_buffer.clear()
-        else:
-            voiced_frames.append(frame)
-            ring_buffer.append((frame, is_speech))
-            num_unvoiced = sum(1 for _, speech in ring_buffer if not speech)
-            if num_unvoiced > 0.9 * num_padding_frames:
-                triggered = False
-                voiced_frames.extend(f for f, _ in ring_buffer)
-                ring_buffer.clear()
-
-    if not voiced_frames:
-        return wav_path
-
-    trimmed_pcm = b"".join(voiced_frames)
-    with wave.open(output_path, "wb") as trimmed_file:
-        trimmed_file.setnchannels(1)
-        trimmed_file.setsampwidth(2)
-        trimmed_file.setframerate(sample_rate)
-        trimmed_file.writeframes(trimmed_pcm)
-
-    return output_path
-
-
-def _dedupe_segments(
-    segments: list[tuple[float, str, str]], window_seconds: float = 2.0
-) -> list[tuple[float, str, str]]:
-    last_seen: dict[str, tuple[str, float]] = {}
-    deduped: list[tuple[float, str, str]] = []
-
-    for start, user_id, text in sorted(segments, key=lambda item: item[0]):
-        last_text, last_time = last_seen.get(user_id, ("", -1.0))
-        if text == last_text and start - last_time <= window_seconds:
-            continue
-        deduped.append((start, user_id, text))
-        last_seen[user_id] = (text, start)
-
-    return deduped
-
-
 async def transcribe_session(
-    session_key: str,
+    session_folder_path: str,
     audio_path: str,
 ) -> None:
-    session_folder = os.path.join(RECORDINGS_DIR, session_key)
-    os.makedirs(session_folder, exist_ok=True)
     client = OpenAI(api_key=api_key)
 
     with open(audio_path, "rb") as audio_file:
@@ -359,6 +236,12 @@ async def transcribe_session(
             response_format="diarized_json",
             chunking_strategy="auto",
         )
+    diarized_transcript_path = os.path.join(
+        session_folder_path, "combined_transcript.txt"
+    )
 
-    for segment in transcript.segments:
-        print(segment.speaker, segment.text, segment.start, segment.end)
+    with open(diarized_transcript_path, "w", encoding="utf-8") as f:
+        for segment in transcript.segments:
+            f.write(
+                f"[{segment.start:.2f} - {segment.end:.2f}] - {segment.speaker}: {segment.text}\n"
+            )
