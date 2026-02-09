@@ -230,6 +230,7 @@ async def transcribe_session(
             file=audio_file,
             response_format="diarized_json",
             chunking_strategy="auto",
+            extra_body=known_speaker_data,
         )
     diarized_transcript_path = os.path.join(
         session_folder_path, "combined_transcript.txt"

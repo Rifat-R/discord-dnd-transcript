@@ -40,7 +40,7 @@ class GameService:
         cfg = self._load(guild_id, channel_id)
         return cfg["characters"].get(str(user_id))
 
-    def get_mapping(self, guild_id: int, channel_id: int | None) -> dict:
+    def get_mapping(self, guild_id: int, channel_id: int | None = None) -> dict:
         cfg = self._load(guild_id, channel_id)
 
         game_name = cfg["game_name"]

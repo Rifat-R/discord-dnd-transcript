@@ -5,7 +5,7 @@ import os
 import re
 from datetime import datetime
 from services import GameService
-from helpers import transcribe_session
+from helpers import transcribe_session, save_silence_removed_audio
 from helpers.types import KnownSpeakerData
 import base64
 from pydub import AudioSegment
@@ -66,15 +66,41 @@ class Recording(commands.Cog):
                 "utf-8"
             )
 
-    def _get_known_speakers_from_sink(
-        self, sink: discord.sinks.Sink
-    ) -> list[KnownSpeakerData]:
-        speakers = []
+    def _get_known_speaker_data_from_sink(
+        self,
+        session_folder_path: str,
+        sink: discord.sinks.Sink,
+        guild_id: int,
+        channel_id: int | None,
+    ) -> KnownSpeakerData:
         known_speaker_names = []
         known_speaker_references = []
+        service = GameService()
+
         for user_id, audio in sink.audio_data.items():
-            ...
-        return speakers
+            # audio.file is file-like (BytesIO/SpooledTemporaryFile)
+            wav_filename = f"{user_id}.wav"
+            wav_path = os.path.join(session_folder_path, wav_filename)
+
+            audio.file.seek(0)
+            with open(wav_path, "wb") as f:
+                save_silence_removed_audio(audio.file, wav_path)
+
+            # this is quite pretty
+
+            character_name = (
+                service.get_character(guild_id, user_id, channel_id) or user_id
+            )
+            print(f"Mapping user {user_id} to character '{character_name}'")
+
+            known_speaker_names.append(character_name)
+            data_url = self._to_data_url(wav_path)
+            known_speaker_references.append(data_url)
+
+        return KnownSpeakerData(
+            known_speaker_names=known_speaker_names,
+            known_speaker_references=known_speaker_references,
+        )
 
     def _save_combined_wav_from_sink(
         self, session_folder: str, sink: discord.sinks.Sink
@@ -132,10 +158,10 @@ class Recording(commands.Cog):
         await channel.send("🔄 Processing recordings and transcribing audio...")
 
         audio_path = self._save_combined_wav_from_sink(session_folder_path, sink)
-        await transcribe_session(
-            session_folder_path,
-            audio_path,
+        known_speaker_data = self._get_known_speaker_data_from_sink(
+            session_folder_path, sink, channel.guild.id, voice_channel_id
         )
+        await transcribe_session(session_folder_path, audio_path, known_speaker_data)
 
         await sink.vc.disconnect()
 
