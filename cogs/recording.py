@@ -116,14 +116,10 @@ class Recording(commands.Cog):
 
         await channel.send("🔄 Processing recordings and transcribing audio...")
 
-        audio_paths = self._save_combined_wav_from_sink(session_folder, sink)
+        audio_path = self._save_combined_wav_from_sink(session_folder, sink)
         await transcribe_session(
-            self.bot,
             session_key,
-            audio_paths,
-            guild_id=channel.guild.id if channel.guild else None,
-            channel_id=channel.id,
-            session_date=session_date,
+            audio_path,
         )
 
         await sink.vc.disconnect()
