@@ -1,6 +1,5 @@
 from sqlitedict import SqliteDict
-
-SessionData = dict[str, str]
+from helpers.types import SessionMetadata
 
 
 class GameService:
@@ -56,9 +55,15 @@ class GameService:
     def set_session_data(
         self,
         session_folder_key: str,
-        session_data: SessionData,
+        characters: list[str],
+        game_name: str | None = None,
     ) -> None:
-        self.db[f"session:{session_folder_key}"] = session_data
+        print(f"Saving session data for {session_folder_key}")
+        self.db[f"session:{session_folder_key}"] = {
+            "game_name": game_name,
+            "characters": characters,
+            "session_folder": session_folder_key,
+        }
 
-    def get_session_data(self, session_folder_key: str) -> SessionData | None:
+    def get_session_data(self, session_folder_key: str) -> SessionMetadata | None:
         return self.db.get(f"session:{session_folder_key}")

@@ -6,7 +6,8 @@ import os
 import re
 from datetime import datetime
 from services import GameService
-from helpers import transcribe_session, save_silence_removed_audio
+from helpers.transcripts_util import transcribe_session
+from helpers.audio_util import save_silence_removed_audio
 from helpers.types import KnownSpeakerData
 import base64
 from pydub import AudioSegment
@@ -100,8 +101,7 @@ class Recording(commands.Cog):
             wav_path = os.path.join(known_speakers_folder, wav_filename)
 
             audio.file.seek(0)
-            with open(wav_path, "wb") as f:
-                save_silence_removed_audio(audio.file, wav_path)
+            save_silence_removed_audio(audio.file, wav_path)
 
             known_speaker_names.append(character_name)
             data_url = self._to_data_url(wav_path)
@@ -164,6 +164,7 @@ class Recording(commands.Cog):
         )
 
         session_key = self._make_session_key(session_name)
+        print(f"SESSION KEY: {session_key}")
         session_folder_path = os.path.join(self.recordings_dir, session_key)
         await channel.send("🔄 Processing recordings and transcribing audio...")
 
@@ -171,7 +172,13 @@ class Recording(commands.Cog):
         known_speaker_data = self._get_known_speaker_data_from_sink(
             session_folder_path, sink, channel.guild.id, voice_channel_id
         )
-        await transcribe_session(session_folder_path, audio_path, known_speaker_data)
+        # setting session metadata here, maybe change at some point to be more flexible
+        service.set_session_data(
+            session_folder_key=session_key,
+            game_name=session_name,
+            characters=known_speaker_data["known_speaker_names"],
+        )
+        await transcribe_session(session_key, audio_path, known_speaker_data)
 
         await sink.vc.disconnect()
 
@@ -342,7 +349,7 @@ class Recording(commands.Cog):
             f"🔄 Re-transcribing audio for session '{session_id}'...", ephemeral=True
         )
 
-        await transcribe_session(session_folder, audio_path, known_speaker_data)
+        await transcribe_session(session_id, audio_path, known_speaker_data)
         await ctx.respond(
             f"✅ Re-transcription complete for session '{session_id}'.", ephemeral=True
         )

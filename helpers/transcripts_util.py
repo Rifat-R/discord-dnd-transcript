@@ -1,8 +1,8 @@
-import json
 import os
 
 from openai import OpenAI
-from services import GameService, SessionData
+from helpers.types import SessionMetadata
+from services import GameService
 import logging
 
 from helpers.types import KnownSpeakerData
@@ -20,24 +20,21 @@ if not api_key:
     logger.error("OPENAI_API_KEY environment variable not set")
 
 
-def _load_session_metadata(session_folder: str) -> dict:
-    metadata_path = os.path.join(session_folder, METADATA_FILE_NAME)
-    if not os.path.exists(metadata_path):
-        return {}
-    try:
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        return {}
-    return {}
+def _load_session_metadata(session_folder: str) -> SessionMetadata | None:
+    print(f"Loading session metadata for folder '{session_folder}'")
+    service = GameService()
+    data = service.get_session_data(session_folder)
+    if not data:
+        print(f"No metadata found for session folder '{session_folder}'")
+        return None
+    session_data = SessionMetadata(
+        game_name=data.get("game_name"),
+        characters=data.get("characters", []),
+        session_folder=session_folder,
+    )
 
-
-def _write_session_metadata(session_folder: str, metadata: dict) -> None:
-    metadata_path = os.path.join(session_folder, METADATA_FILE_NAME)
-    with open(metadata_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
+    print(f"Loaded session metadata for folder '{session_folder}': {session_data}")
+    return session_data
 
 
 def _chunk_text(text: str, max_chars: int = 12000) -> list[str]:
@@ -129,32 +126,20 @@ def _summary_template() -> str:
     )
 
 
-def _build_metadata_context(metadata: dict) -> str:
+def _build_metadata_context(metadata: SessionMetadata) -> str:
     game_name = metadata.get("game_name")
-    session_date = metadata.get("session_date")
-    participants = metadata.get("participants", {})
-    characters = metadata.get("characters", {})
+    session_folder = metadata.get("session_folder")
+    characters = metadata.get("characters", [])
 
-    names_line = ", ".join(participants.values()) if participants else "Unknown"
-    party_lines = []
-    for user_id, name in participants.items():
-        character = characters.get(str(user_id))
-        if character:
-            party_lines.append(f"- {character} ({name})")
-    party_line = "\n".join(party_lines) if party_lines else "- Unknown"
+    names_line = ", ".join(characters) if characters else "Unknown"
+    game_line = session_folder
 
-    game_line = session_date
-    if game_name:
-        game_line = f"{game_name} — {session_date}"
-
-    return (
-        f"Game/Date: {game_line}\n"
-        f"Participants: {names_line}\n"
-        f"Party (if known):\n{party_line}\n"
-    )
+    return f"Game name: {game_name}\nGame/Date: {game_line}\nParticipants/Characters ({len(characters)}): {names_line}\n"
 
 
-def _summarize_transcript(transcript_text: str, metadata: dict) -> str:
+def _summarize_transcript(
+    transcript_text: str, metadata: SessionMetadata | None
+) -> str:
     if not transcript_text.strip():
         raise RuntimeError("Transcript is empty")
 
@@ -183,7 +168,10 @@ def _summarize_transcript(transcript_text: str, metadata: dict) -> str:
         chunk_summaries.append(_call_openai(messages, max_tokens=700))
 
     combined_notes = "\n\n".join(chunk_summaries)
-    metadata_context = _build_metadata_context(metadata)
+    if metadata:
+        metadata_context = _build_metadata_context(metadata)
+    else:
+        metadata_context = "No metadata available."
 
     final_messages = [
         {
@@ -211,10 +199,11 @@ def _summarize_transcript(transcript_text: str, metadata: dict) -> str:
 
 
 async def transcribe_session(
-    session_folder_path: str,
+    session_key: str,
     audio_path: str,
     known_speaker_data: KnownSpeakerData | None,
 ) -> None:
+    session_folder_path = os.path.join(RECORDINGS_DIR, session_key)
     client = OpenAI(api_key=api_key)
 
     with open(audio_path, "rb") as audio_file:
@@ -235,7 +224,7 @@ async def transcribe_session(
                 f"[{segment.start:.2f} - {segment.end:.2f}] - {segment.speaker}: {segment.text}\n"
             )
 
-    metadata = _load_session_metadata(session_folder_path)
+    metadata = _load_session_metadata(session_key)
     summary = _summarize_transcript(
         transcript_text=open(diarized_transcript_path, "r", encoding="utf-8").read(),
         metadata=metadata,
