@@ -6,6 +6,8 @@ import re
 from datetime import datetime
 from services import GameService
 from helpers import transcribe_session
+from helpers.types import KnownSpeakerData
+import base64
 from pydub import AudioSegment
 
 
@@ -57,6 +59,22 @@ class Recording(commands.Cog):
             sync_start=True,
         )
         await ctx.respond("Started recording!")
+
+    def _to_data_url(self, path: str) -> str:
+        with open(path, "rb") as fh:
+            return "data:audio/wav;base64," + base64.b64encode(fh.read()).decode(
+                "utf-8"
+            )
+
+    def _get_known_speakers_from_sink(
+        self, sink: discord.sinks.Sink
+    ) -> list[KnownSpeakerData]:
+        speakers = []
+        known_speaker_names = []
+        known_speaker_references = []
+        for user_id, audio in sink.audio_data.items():
+            ...
+        return speakers
 
     def _save_combined_wav_from_sink(
         self, session_folder: str, sink: discord.sinks.Sink

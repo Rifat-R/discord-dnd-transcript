@@ -1,19 +1,13 @@
-import asyncio
-import collections
 import json
 import os
-import wave
-from datetime import datetime
 
-import numpy as np
-import webrtcvad
-import whisper
 from openai import OpenAI
 from services import GameService, SessionData
 import logging
 
+from helpers.types import KnownSpeakerData
+
 logger = logging.getLogger(__name__)
-whisper_model = whisper.load_model("base")
 
 
 RECORDINGS_DIR = "recordings"
@@ -226,6 +220,7 @@ def _summarize_transcript(transcript_text: str, metadata: dict) -> str:
 async def transcribe_session(
     session_folder_path: str,
     audio_path: str,
+    known_speaker_data: KnownSpeakerData,
 ) -> None:
     client = OpenAI(api_key=api_key)
 
