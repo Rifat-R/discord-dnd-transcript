@@ -101,7 +101,13 @@ class Recording(commands.Cog):
             wav_path = os.path.join(known_speakers_folder, wav_filename)
 
             audio.file.seek(0)
-            save_silence_removed_audio(audio.file, wav_path)
+            saved = save_silence_removed_audio(audio.file, wav_path)
+            if not saved:
+                print(
+                    f"Skipping known speaker reference for '{character_name}': "
+                    "duration out of bounds."
+                )
+                continue
 
             known_speaker_names.append(character_name)
             data_url = self._to_data_url(wav_path)

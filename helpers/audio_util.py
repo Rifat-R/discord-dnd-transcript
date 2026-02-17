@@ -4,13 +4,17 @@ from pydub import AudioSegment
 from pydub.silence import split_on_silence
 
 
-def save_silence_removed_audio(audio_buffer: io.BytesIO, output_path: str) -> None:
+def save_silence_removed_audio(audio_buffer: io.BytesIO, output_path: str) -> bool:
     """
     Reads audio from a BytesIO buffer, removes silence, trims to max 700KB,
-    saves to disk, and returns None.
+    enforces duration bounds for diarization references, saves to disk.
+    Returns True if saved, False if skipped.
     """
     MAX_SIZE_KB = 700  # Target file size limit
     MAX_BYTES = MAX_SIZE_KB * 1024
+    MIN_DURATION_MS = 1200
+    MAX_DURATION_MS = 10000
+    TRIM_DURATION_MS = 9000
 
     # Ensure pointer is at the start
     audio_buffer.seek(0)
@@ -23,7 +27,7 @@ def save_silence_removed_audio(audio_buffer: io.BytesIO, output_path: str) -> No
             audio_buffer.seek(0)
             # Rough truncation for raw bytes if pydub fails
             f.write(audio_buffer.read(MAX_BYTES))
-        return
+        return False
 
     # 1. Silence Removal
     chunks = split_on_silence(
@@ -35,7 +39,14 @@ def save_silence_removed_audio(audio_buffer: io.BytesIO, output_path: str) -> No
     else:
         combined = sum(chunks)  # Pydub supports sum() for chunks
 
-    # 2. Size Truncation Logic
+    # 2. Duration Bounds (OpenAI diarization requires 1.2s-10.0s)
+    if len(combined) < MIN_DURATION_MS:  # type: ignore
+        return False
+
+    if len(combined) > MAX_DURATION_MS:  # type: ignore
+        combined = combined[:TRIM_DURATION_MS]  # type: ignore
+
+    # 3. Size Truncation Logic
     # WAV header is ~44 bytes, the rest is raw_data.
     # We check if raw data exceeds our limit.
     current_size = len(combined.raw_data)  # type: ignore
@@ -56,3 +67,4 @@ def save_silence_removed_audio(audio_buffer: io.BytesIO, output_path: str) -> No
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     combined.export(output_path, format="wav")  # type: ignore
+    return True
