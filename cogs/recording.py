@@ -93,7 +93,7 @@ class Recording(commands.Cog):
         for user_id, audio in sink.audio_data.items():
             # audio.file is file-like (BytesIO/SpooledTemporaryFile)
 
-            character_name = (
+            character_name = str(
                 service.get_character(guild_id, user_id, channel_id) or user_id
             )
             print(f"Mapping user {user_id} to character '{character_name}'")
