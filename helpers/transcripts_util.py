@@ -206,6 +206,7 @@ async def transcribe_session(
     session_folder_path = os.path.join(RECORDINGS_DIR, session_key)
     client = OpenAI(api_key=api_key)
 
+    logger.debug("Starting diarization...")
     with open(audio_path, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
             model="gpt-4o-transcribe-diarize",
@@ -223,8 +224,13 @@ async def transcribe_session(
             f.write(
                 f"[{segment.start:.2f} - {segment.end:.2f}] - {segment.speaker}: {segment.text}\n"
             )
+    logger.debug(f"Finished diarization! Saved at path: {diarized_transcript_path}")
 
+    logger.debug("Loading metadata...")
     metadata = _load_session_metadata(session_key)
+    logger.debug("Metadata loaded successfully!")
+
+    logger.debug("Starting summarization...")
     summary = _summarize_transcript(
         transcript_text=open(diarized_transcript_path, "r", encoding="utf-8").read(),
         metadata=metadata,
@@ -233,3 +239,5 @@ async def transcribe_session(
     summary_path = os.path.join(session_folder_path, SUMMARY_FILE_NAME)
     with open(summary_path, "w", encoding="utf-8") as f:
         f.write(summary)
+
+    logger.debug(f"Summarization completed! Path: {summary_path}")
