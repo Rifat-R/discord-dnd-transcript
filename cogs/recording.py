@@ -184,7 +184,15 @@ class Recording(commands.Cog):
             game_name=session_name,
             characters=known_speaker_data["known_speaker_names"],
         )
-        await transcribe_session(session_key, audio_path, known_speaker_data)
+
+        try:
+            await transcribe_session(session_key, audio_path, known_speaker_data)
+        except Exception as e:
+            await channel.send(
+                f"❌ An error occurred during transcription: Check logs for details."
+            )
+            print(f"Error during transcription for session '{session_key}': {e}")
+            return
 
         await sink.vc.disconnect()
 

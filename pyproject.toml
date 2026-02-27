@@ -44,6 +44,7 @@ dependencies = [
     "propcache==0.4.1",
     "py-cord==2.7.0",
     "pycparser==2.23",
+    "pydub>=0.25.1",
     "pynacl==1.6.2",
     "python-dotenv==1.2.1",
     "regex==2025.11.3",

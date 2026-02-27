@@ -7,7 +7,7 @@ import logging
 
 from helpers.types import KnownSpeakerData
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mybot.transcripts_util")
 
 
 RECORDINGS_DIR = "recordings"
@@ -141,7 +141,7 @@ def _summarize_transcript(
     transcript_text: str, metadata: SessionMetadata | None
 ) -> str:
     if not transcript_text.strip():
-        raise RuntimeError("Transcript is empty")
+        raise RuntimeError("Error: Transcript text is empty, cannot summarize.")
 
     if api_key is None:
         raise RuntimeError("OpenAI API key is not set")
