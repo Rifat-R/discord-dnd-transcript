@@ -192,9 +192,8 @@ class Recording(commands.Cog):
                 f"❌ An error occurred during transcription: Check logs for details."
             )
             print(f"Error during transcription for session '{session_key}': {e}")
-            return
-
-        await sink.vc.disconnect()
+        finally:
+            await sink.vc.disconnect()
 
         embed = discord.Embed(
             title="✅ Recording and Transcription Complete",
