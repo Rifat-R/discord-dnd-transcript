@@ -68,14 +68,13 @@ pythonVersion = "3.12"
 
 include = [ "." ]
 exclude = [
-  "**/venv",
+  "**/.venv",
   "**/.git",
   "**/node_modules",
   "**/__pycache__",
   "**/migrations",
   "**/dist",
   "**/build",
-  "manage.py",
 ]
 
 reportMissingImports = true
