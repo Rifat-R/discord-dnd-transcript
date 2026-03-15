@@ -215,7 +215,6 @@ class Recording(commands.Cog):
             vc.stop_recording()
 
             del self.connections[ctx.guild.id]
-            await ctx.delete()
         else:
             await ctx.respond("I am currently not recording here.")
 
