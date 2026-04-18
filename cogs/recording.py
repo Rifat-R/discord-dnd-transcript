@@ -41,26 +41,32 @@ class Recording(commands.Cog):
 
     @discord.slash_command()
     async def start_recording(self, ctx: discord.ApplicationContext):
-        """Start recording audio in your current voice channel"""
         if not isinstance(ctx.author, discord.Member):
             await ctx.respond("This command can only be used in a server.")
             return
 
         voice = ctx.author.voice
-
-        if not voice:
+        if not voice or not voice.channel:
             await ctx.respond("You aren't in a voice channel!")
+            return
+
+        await ctx.defer()
 
         vc = await voice.channel.connect()
-        self.connections.update({ctx.guild.id: vc})
+
+        if not ctx.guild:
+            await ctx.respond("You can't use this command outside of a server.")
+            return
+
+        self.connections[ctx.guild.id] = vc
 
         vc.start_recording(
             discord.sinks.WaveSink(),
             self.once_done,
             ctx.channel,
-            sync_start=True,
         )
-        await ctx.respond("Started recording!")
+
+        await ctx.followup.send("Started recording!")
 
     def _to_data_url(self, path: str) -> str:
         with open(path, "rb") as fh:
