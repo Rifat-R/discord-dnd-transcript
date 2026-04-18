@@ -216,11 +216,15 @@ class Recording(commands.Cog):
         Stop recording audio in the current voice channel to save files and see transcriptions.
         This also triggers once_done function.
         """
+        await ctx.defer()
         if ctx.guild.id in self.connections:
             vc = self.connections[ctx.guild.id]
             vc.stop_recording()
 
             del self.connections[ctx.guild.id]
+            await ctx.respond(
+                "Stopped recording and processing audio. Please wait for the transcription to complete."
+            )
         else:
             await ctx.respond("I am currently not recording here.")
 
