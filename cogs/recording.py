@@ -60,7 +60,7 @@ class Recording(commands.Cog):
             ctx.channel,
             sync_start=True,
         )
-        await ctx.respond("Started recording!")
+        await ctx.send("Started recording!")
 
     def _to_data_url(self, path: str) -> str:
         with open(path, "rb") as fh:

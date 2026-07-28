@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "dotenv>=0.9.9",
     "openai>=2.24.0",
-    "py-cord[voice]>=2.7.1",
+    "py-cord[voice]",
     "pydub>=0.25.1",
     "sqlitedict>=2.1.0",
 ]
@@ -38,3 +38,6 @@ reportUntypedFunctionDecorator = "none"
 reportUnnecessaryTypeIgnoreComment = "warning"
 reportUnboundVariable = "error"
 reportUnusedImport = "warning"
+
+[tool.uv.sources]
+py-cord = { git = "https://github.com/Pycord-Development/pycord", rev = "refs/pull/3159/head" }
